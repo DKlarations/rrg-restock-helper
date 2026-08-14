@@ -682,7 +682,7 @@ function App() {
       </main>
 
       <footer className="site-footer no-print">
-        <span>Updated: 8/14/2026</span>
+        <span>Updated: 8.14.2026</span>
         <span>As always, let me know if you have any issues or ideas with this -Derek</span>
       </footer>
     </div>
