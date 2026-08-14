@@ -426,13 +426,14 @@ main {
 
 .settings-content {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 1px;
   border-top: 1px solid var(--line);
   background: var(--line);
 }
 
-.settings-content > label {
+.settings-content > label,
+.settings-content > .split-setting {
   min-height: 82px;
   padding: 17px 20px;
   background: #102238;
@@ -440,6 +441,7 @@ main {
 
 .toggle-setting {
   display: grid;
+  grid-column: span 2;
   grid-template-columns: auto 1fr;
   gap: 11px;
   align-items: center;
@@ -480,6 +482,7 @@ main {
 
 .toggle-setting strong,
 .field-setting strong,
+.split-setting strong,
 .ignore-setting strong {
   display: block;
   color: #edf6fd;
@@ -488,6 +491,7 @@ main {
 
 .toggle-setting small,
 .field-setting small,
+.split-setting small,
 .ignore-setting small {
   display: block;
   margin-top: 2px;
@@ -497,6 +501,7 @@ main {
 
 .field-setting {
   display: flex;
+  grid-column: span 2;
   align-items: center;
   justify-content: space-between;
   gap: 20px;
@@ -508,6 +513,7 @@ main {
 }
 
 .field-setting select,
+.split-setting select,
 .ignore-setting textarea {
   border: 1px solid #38546f;
   border-radius: 6px;
@@ -515,9 +521,32 @@ main {
   background: #0a1928;
 }
 
-.field-setting select {
+.field-setting select,
+.split-setting select {
   min-width: 135px;
   padding: 8px 10px;
+}
+
+.field-setting select:disabled,
+.split-setting select:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.split-setting {
+  display: grid;
+  grid-column: span 2;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.split-setting .split-toggle-control {
+  grid-column: auto;
+}
+
+.split-setting select {
+  min-width: 72px;
 }
 
 .ignore-setting {
@@ -549,8 +578,8 @@ main {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 30px;
-  padding: 2rem 2.2rem 1.45rem;
+  gap: 20px;
+  padding: 1rem 1.4rem 0.8rem;
   color: #fff;
   background:
     linear-gradient(90deg, rgba(55, 159, 219, 0.23), transparent 32%),
@@ -560,7 +589,7 @@ main {
 .print-report-header h2 {
   margin: 0;
   font-family: "Luckiest Guy", Inter, ui-sans-serif, system-ui, sans-serif;
-  font-size: 2.5em;
+  font-size: 25pt;
   font-weight: 400;
   line-height: 1;
   letter-spacing: 0.01em;
@@ -568,7 +597,7 @@ main {
 
 .report-meta {
   min-width: max-content;
-  font-size: 0.9em;
+  font-size: 9pt;
 }
 
 .report-meta span {
@@ -590,6 +619,37 @@ main {
 .report-summary-strip strong {
   color: #0c6fa9;
   font-size: 1.1em;
+}
+
+.split-part-heading {
+  display: flex;
+  min-height: 2rem;
+  padding: 0.45rem 2.2rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid #aac9dc;
+  color: #173e5c;
+  background: #dfeef6;
+  font-size: 0.72em;
+  letter-spacing: 0.04em;
+  break-after: avoid;
+}
+
+.split-part-heading strong {
+  font-weight: 900;
+}
+
+.split-part-heading span {
+  color: #4f6677;
+  font-size: 0.9em;
+  letter-spacing: 0;
+}
+
+.split-report-part + .split-report-part {
+  margin-top: 1rem;
+  padding-top: 0.8rem;
+  border-top: 12px solid #d5dde3;
 }
 
 .report-row {
@@ -796,6 +856,12 @@ main {
     grid-template-columns: 1fr;
   }
 
+  .toggle-setting,
+  .field-setting,
+  .split-setting {
+    grid-column: auto;
+  }
+
   .report-card {
     overflow-x: auto;
   }
@@ -849,11 +915,23 @@ main {
   }
 
   .print-report-header {
-    padding: 0.28in 0.3in 0.2in;
+    padding: 0.15in 0.3in 0.11in;
   }
 
   .report-summary-strip {
     padding: 0.09in 0.3in;
+  }
+
+  .split-part-heading {
+    padding: 0.08in 0.3in;
+  }
+
+  .split-report-part + .split-report-part {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: 0;
+    break-before: page;
+    page-break-before: always;
   }
 
   .report-row,
@@ -882,4 +960,11 @@ main {
     break-before: page;
     page-break-before: always;
   }
+
+  .packet-verify-section {
+    margin-top: 0.12in;
+    break-before: auto;
+    page-break-before: auto;
+  }
+
 }

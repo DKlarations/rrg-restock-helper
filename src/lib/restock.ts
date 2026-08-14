@@ -6,8 +6,11 @@ export type CsvInput = {
 }
 
 export type ReportSettings = {
-  includeCardSingles: boolean
+  includeMiscAndSingles: boolean
   showCategoryHeadings: boolean
+  printVerifyStock: boolean
+  splitReport: boolean
+  splitCount: number | 'max'
   printFontSize: number
   rowDensity: 'microcompact' | 'subcompact' | 'compact' | 'standard' | 'roomy'
   ignoreText: string
@@ -22,7 +25,7 @@ export type RestockItem = {
   qtySold: number
   qtyToPull: number
   firstSeen: number
-  isCardSingle: boolean
+  isMiscOrSingle: boolean
   issue?: 'zero-stock' | 'negative-stock' | 'not-found'
 }
 
@@ -45,12 +48,20 @@ export type ReportGroup = {
   items: RestockItem[]
 }
 
+export type SplitReportPart = {
+  groups: ReportGroup[]
+  verifyGroups: ReportGroup[]
+  restockItemCount: number
+  verifyItemCount: number
+  workload: number
+}
+
 export type DisplayReport = BaseReport & {
   groups: ReportGroup[]
   verifyItems: RestockItem[]
   verifyGroups: ReportGroup[]
   ignoredItems: number
-  hiddenSingles: number
+  hiddenMiscAndSingles: number
   restockItemCount: number
   totalUnitsToPull: number
 }
@@ -93,17 +104,22 @@ const SYSTEM_IGNORED_ITEM_KEYS = new Set([
 ])
 
 export const DEFAULT_SETTINGS: ReportSettings = {
-  includeCardSingles: false,
+  includeMiscAndSingles: false,
   showCategoryHeadings: true,
+  printVerifyStock: true,
+  splitReport: false,
+  splitCount: 2,
   printFontSize: 10,
   rowDensity: 'standard',
   ignoreText: [
-    'Soda',
-    'Food',
+    'D&A',
     'Event',
     'Events',
+    'Food',
     'Rental',
+    'Soda',
     'Tickets',
+    'ad hoc*',
   ].join('\n'),
 }
 
@@ -190,8 +206,12 @@ function categoryLabel(categories: string[]): string {
   return categories.join(' › ') || 'Uncategorized'
 }
 
-function isCardSingle(categories: string[]): boolean {
-  return categories.some((category) => normalizeName(category) === 'singles')
+function containsMiscOrSingles(value: string): boolean {
+  return /(^|[^a-z0-9])(misc|singles)(?=$|[^a-z0-9])/.test(normalizeName(value))
+}
+
+function isMiscOrSingle(itemName: string, categories: string[]): boolean {
+  return containsMiscOrSingles(itemName) || categories.some(containsMiscOrSingles)
 }
 
 function categoryPriority(categories: string[]): number {
@@ -334,7 +354,7 @@ export function buildBaseReport(
         qtySold: sale.quantity,
         qtyToPull: 0,
         firstSeen: sale.firstSeen,
-        isCardSingle: isCardSingle(categories),
+        isMiscOrSingle: isMiscOrSingle(sale.displayName, categories),
         issue: 'not-found',
       })
       continue
@@ -357,7 +377,7 @@ export function buildBaseReport(
       qtySold: sale.quantity,
       qtyToPull: Math.max(0, Math.min(sale.quantity, balance)),
       firstSeen: sale.firstSeen,
-      isCardSingle: isCardSingle(categories),
+      isMiscOrSingle: isMiscOrSingle(categorySource.displayName || sale.displayName, categories),
       issue,
     })
   }
@@ -431,15 +451,15 @@ export function applyReportSettings(
 ): DisplayReport {
   const ignoreRules = parseIgnoreRules(settings.ignoreText)
   let ignoredItems = 0
-  let hiddenSingles = 0
+  let hiddenMiscAndSingles = 0
 
   const includedMatched = base.matchedItems.filter((item) => {
     if (matchesIgnoreRule(item, ignoreRules)) {
       ignoredItems += 1
       return false
     }
-    if (!settings.includeCardSingles && item.isCardSingle) {
-      hiddenSingles += 1
+    if (!settings.includeMiscAndSingles && item.isMiscOrSingle) {
+      hiddenMiscAndSingles += 1
       return false
     }
     return true
@@ -500,10 +520,291 @@ export function applyReportSettings(
     verifyItems,
     verifyGroups,
     ignoredItems,
-    hiddenSingles,
+    hiddenMiscAndSingles,
     restockItemCount: restockItems.length,
     totalUnitsToPull: restockItems.reduce((sum, item) => sum + item.qtyToPull, 0),
   }
+}
+
+export function splitReportGroups(
+  groups: ReportGroup[],
+  requestedParts: number | 'max',
+): ReportGroup[][] {
+  if (groups.length === 0) return []
+  const totalItems = groups.reduce((sum, group) => sum + group.items.length, 0)
+  if (totalItems === 0) return [groups]
+
+  const normalizedRequestedParts = requestedParts === 'max'
+    ? Math.max(1, Math.round(totalItems / 25))
+    : Number.isFinite(requestedParts)
+      ? Math.floor(requestedParts)
+      : 1
+  const partCount = Math.max(1, Math.min(totalItems, normalizedRequestedParts))
+  if (partCount === 1) return [groups]
+
+  const assignments = Array.from({ length: partCount }, () => ({
+    itemCount: 0,
+    groups: [] as Array<{
+      group: ReportGroup
+      items: RestockItem[]
+      originalIndex: number
+    }>,
+  }))
+  const largestCategoriesFirst = groups
+    .map((group, originalIndex) => ({ group, originalIndex }))
+    .sort((a, b) => b.group.items.length - a.group.items.length || a.originalIndex - b.originalIndex)
+
+  for (const category of largestCategoriesFirst) {
+    let lightestPartIndex = 0
+    for (let index = 1; index < assignments.length; index += 1) {
+      const candidate = assignments[index]
+      const lightest = assignments[lightestPartIndex]
+      if (
+        candidate.itemCount < lightest.itemCount ||
+        (candidate.itemCount === lightest.itemCount && candidate.groups.length < lightest.groups.length)
+      ) {
+        lightestPartIndex = index
+      }
+    }
+
+    assignments[lightestPartIndex].groups.push({
+      ...category,
+      items: [...category.group.items],
+    })
+    assignments[lightestPartIndex].itemCount += category.group.items.length
+  }
+
+  const targetItemsPerPart = totalItems / partCount
+  const allowedDifference = Math.max(2, Math.floor(targetItemsPerPart * 0.08))
+  const maximumRebalanceSteps = totalItems * partCount
+
+  for (let step = 0; step < maximumRebalanceSteps; step += 1) {
+    let heaviestPartIndex = 0
+    let lightestPartIndex = 0
+    for (let index = 1; index < assignments.length; index += 1) {
+      if (assignments[index].itemCount > assignments[heaviestPartIndex].itemCount) {
+        heaviestPartIndex = index
+      }
+      if (assignments[index].itemCount < assignments[lightestPartIndex].itemCount) {
+        lightestPartIndex = index
+      }
+    }
+
+    const heaviest = assignments[heaviestPartIndex]
+    const lightest = assignments[lightestPartIndex]
+    const difference = heaviest.itemCount - lightest.itemCount
+    if (difference <= allowedDifference) break
+
+    let wholeGroupIndex = -1
+    let bestWholeGroupDifference = difference
+    for (let index = 0; index < heaviest.groups.length; index += 1) {
+      const itemCount = heaviest.groups[index].items.length
+      const nextDifference = Math.abs(
+        (heaviest.itemCount - itemCount) - (lightest.itemCount + itemCount),
+      )
+      if (nextDifference < bestWholeGroupDifference) {
+        wholeGroupIndex = index
+        bestWholeGroupDifference = nextDifference
+      }
+    }
+
+    if (wholeGroupIndex >= 0) {
+      const [movedGroup] = heaviest.groups.splice(wholeGroupIndex, 1)
+      heaviest.itemCount -= movedGroup.items.length
+      lightest.groups.push(movedGroup)
+      lightest.itemCount += movedGroup.items.length
+      continue
+    }
+
+    const splittableGroupIndex = heaviest.groups.reduce(
+      (largestIndex, group, index, allGroups) =>
+        group.items.length > allGroups[largestIndex].items.length ? index : largestIndex,
+      0,
+    )
+    const splittableGroup = heaviest.groups[splittableGroupIndex]
+    if (!splittableGroup || splittableGroup.items.length < 2) break
+
+    const desiredMove = Math.max(1, Math.floor(difference / 2))
+    const moveCount = Math.min(desiredMove, splittableGroup.items.length - 1)
+    const movedItems = splittableGroup.items.splice(-moveCount)
+    heaviest.itemCount -= movedItems.length
+    lightest.groups.push({ ...splittableGroup, items: movedItems })
+    lightest.itemCount += movedItems.length
+  }
+
+  return assignments
+    .map((assignment, partIndex) => {
+      const combinedGroups = new Map<number, { group: ReportGroup; items: RestockItem[] }>()
+      for (const assignedGroup of assignment.groups) {
+        const existing = combinedGroups.get(assignedGroup.originalIndex)
+        if (existing) {
+          existing.items.push(...assignedGroup.items)
+        } else {
+          combinedGroups.set(assignedGroup.originalIndex, {
+            group: assignedGroup.group,
+            items: [...assignedGroup.items],
+          })
+        }
+      }
+
+      const orderedGroups = [...combinedGroups.entries()].sort(([a], [b]) => a - b)
+      return {
+        firstOriginalIndex: orderedGroups[0]?.[0] ?? Number.POSITIVE_INFINITY,
+        groups: orderedGroups.map(([originalIndex, { group, items }]) => {
+          const itemOrder = new Map(group.items.map((item, index) => [item, index]))
+          return {
+            ...group,
+            key: `${group.key}--split-${partIndex}-${originalIndex}`,
+            items: items.sort((a, b) => (itemOrder.get(a) ?? 0) - (itemOrder.get(b) ?? 0)),
+          }
+        }),
+      }
+    })
+    .sort((a, b) => a.firstOriginalIndex - b.firstOriginalIndex)
+    .map((assignment) => assignment.groups)
+}
+
+const VERIFY_WORKLOAD = 3
+const MAX_PACKET_WORKLOAD = 25
+
+function groupTopLevelKey(group: ReportGroup): string {
+  const category = group.items[0]?.categories[0] ?? group.label.split(/\s*[›>]\s*/)[0] ?? ''
+  return normalizeName(category)
+}
+
+function partHasGroup(part: SplitReportPart, groupKey: string): boolean {
+  return part.groups.some((group) => normalizeName(group.label) === groupKey)
+}
+
+function partHasTopLevelCategory(part: SplitReportPart, topLevelKey: string): boolean {
+  return part.groups.some((group) => groupTopLevelKey(group) === topLevelKey)
+}
+
+function addVerifyItems(
+  part: SplitReportPart,
+  group: ReportGroup,
+  items: RestockItem[],
+  partIndex: number,
+  groupIndex: number,
+): void {
+  const existing = part.verifyGroups.find((candidate) => candidate.key.startsWith(`${group.key}--verify-split-`))
+  if (existing) {
+    existing.items.push(...items)
+  } else {
+    part.verifyGroups.push({
+      ...group,
+      key: `${group.key}--verify-split-${partIndex}-${groupIndex}`,
+      items: [...items],
+    })
+  }
+  part.verifyItemCount += items.length
+  part.workload += items.length * VERIFY_WORKLOAD
+}
+
+/**
+ * Creates coworker packets using weighted work rather than printed row count.
+ * Ordinary restock rows cost one unit; Verify Stock rows cost three. Categories
+ * stay together unless keeping one intact would make the packets substantially
+ * uneven, and Verify Stock prefers the packet already handling its category.
+ */
+export function splitReportIntoParts(
+  groups: ReportGroup[],
+  verifyGroups: ReportGroup[],
+  requestedParts: number | 'max',
+): SplitReportPart[] {
+  const restockItemCount = groups.reduce((sum, group) => sum + group.items.length, 0)
+  const verifyItemCount = verifyGroups.reduce((sum, group) => sum + group.items.length, 0)
+  const totalRows = restockItemCount + verifyItemCount
+  if (totalRows === 0) return []
+
+  const totalWorkload = restockItemCount + verifyItemCount * VERIFY_WORKLOAD
+  const normalizedRequestedParts = requestedParts === 'max'
+    ? Math.max(1, Math.round(totalWorkload / MAX_PACKET_WORKLOAD))
+    : Number.isFinite(requestedParts)
+      ? Math.floor(requestedParts)
+      : 1
+  const partCount = Math.max(1, Math.min(totalRows, normalizedRequestedParts))
+  const restockParts = groups.length > 0 ? splitReportGroups(groups, partCount) : []
+  const parts: SplitReportPart[] = Array.from({ length: partCount }, (_, index) => {
+    const partGroups = restockParts[index] ?? []
+    const itemCount = partGroups.reduce((sum, group) => sum + group.items.length, 0)
+    return {
+      groups: partGroups,
+      verifyGroups: [],
+      restockItemCount: itemCount,
+      verifyItemCount: 0,
+      workload: itemCount,
+    }
+  })
+
+  const targetWorkload = totalWorkload / partCount
+  const allowedDifference = Math.max(VERIFY_WORKLOAD, Math.floor(targetWorkload * 0.12))
+  const orderedVerifyGroups = verifyGroups
+    .map((group, originalIndex) => ({ group, originalIndex }))
+    .sort((a, b) => b.group.items.length - a.group.items.length || a.originalIndex - b.originalIndex)
+
+  for (const { group, originalIndex } of orderedVerifyGroups) {
+    const fullCategoryKey = normalizeName(group.label)
+    const topLevelKey = groupTopLevelKey(group)
+    const exactCandidates = parts
+      .map((part, index) => ({ part, index }))
+      .filter(({ part }) => partHasGroup(part, fullCategoryKey))
+    const topLevelCandidates = parts
+      .map((part, index) => ({ part, index }))
+      .filter(({ part }) => partHasTopLevelCategory(part, topLevelKey))
+    const preferredCandidates = exactCandidates.length > 0
+      ? exactCandidates
+      : topLevelCandidates.length > 0
+        ? topLevelCandidates
+        : parts.map((part, index) => ({ part, index }))
+    const lightestPreferred = preferredCandidates.reduce((lightest, candidate) =>
+      candidate.part.workload < lightest.part.workload ? candidate : lightest,
+    )
+    const groupWorkload = group.items.length * VERIFY_WORKLOAD
+    const projectedWorkloads = parts.map((part, index) =>
+      index === lightestPreferred.index ? part.workload + groupWorkload : part.workload,
+    )
+    const projectedSpread = Math.max(...projectedWorkloads) - Math.min(...projectedWorkloads)
+    const shouldKeepWhole =
+      group.items.length <= 3 ||
+      projectedSpread <= allowedDifference
+
+    if (shouldKeepWhole) {
+      addVerifyItems(lightestPreferred.part, group, group.items, lightestPreferred.index, originalIndex)
+      continue
+    }
+
+    // An oversized Verify category may cross packets. Workload wins first;
+    // category affinity breaks ties so related work still stays together where possible.
+    for (const item of group.items) {
+      const lightestWorkload = Math.min(...parts.map((part) => part.workload))
+      const candidates = parts
+        .map((part, index) => ({ part, index }))
+        .filter(({ part }) => part.workload <= lightestWorkload + VERIFY_WORKLOAD - 1)
+      const best = candidates.reduce((current, candidate) => {
+        const currentAffinity = partHasGroup(current.part, fullCategoryKey)
+          ? 0
+          : partHasTopLevelCategory(current.part, topLevelKey) ? 1 : 2
+        const candidateAffinity = partHasGroup(candidate.part, fullCategoryKey)
+          ? 0
+          : partHasTopLevelCategory(candidate.part, topLevelKey) ? 1 : 2
+        if (candidate.part.workload !== current.part.workload) {
+          return candidate.part.workload < current.part.workload ? candidate : current
+        }
+        return candidateAffinity < currentAffinity ? candidate : current
+      })
+      addVerifyItems(best.part, group, [item], best.index, originalIndex)
+    }
+  }
+
+  const verifyOrder = new Map(verifyGroups.map((group, index) => [normalizeName(group.label), index]))
+  for (const part of parts) {
+    part.verifyGroups.sort(
+      (a, b) => (verifyOrder.get(normalizeName(a.label)) ?? 0) - (verifyOrder.get(normalizeName(b.label)) ?? 0),
+    )
+  }
+
+  return parts
 }
 
 export function formatQuantity(value: number | null): string {

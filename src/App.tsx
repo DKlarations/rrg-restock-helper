@@ -17,8 +17,10 @@ import {
   buildBaseReport,
   DEFAULT_SETTINGS,
   formatQuantity,
+  splitReportIntoParts,
   type BaseReport,
   type CsvInput,
+  type ReportGroup,
   type ReportSettings,
   type RestockItem,
 } from './lib/restock'
@@ -28,12 +30,47 @@ type LoadedFile = CsvInput & {
   size: number
 }
 
-const STORAGE_KEY = 'rrg-restock-helper-settings-v5'
+const STORAGE_KEY = 'rrg-restock-helper-settings-v7'
+const LEGACY_DEFAULT_IGNORE_TEXT = [
+  'Soda',
+  'Food',
+  'ad hoc*',
+  'D&A',
+  'Event',
+  'Events',
+  'Rental',
+  'Tickets',
+].join('\n')
+const ROW_DENSITIES: ReportSettings['rowDensity'][] = [
+  'microcompact',
+  'subcompact',
+  'compact',
+  'standard',
+  'roomy',
+]
+const ROW_DENSITY_LABELS: Record<ReportSettings['rowDensity'], string> = {
+  microcompact: 'Micro-Compact',
+  subcompact: 'Subcompact',
+  compact: 'Compact',
+  standard: 'Standard',
+  roomy: 'Roomy',
+}
 
 function loadSettings(): ReportSettings {
   try {
     const stored = localStorage.getItem(STORAGE_KEY)
-    return stored ? { ...DEFAULT_SETTINGS, ...JSON.parse(stored) } : DEFAULT_SETTINGS
+    if (!stored) return DEFAULT_SETTINGS
+
+    const saved = JSON.parse(stored) as Partial<ReportSettings>
+    return {
+      ...DEFAULT_SETTINGS,
+      ...saved,
+      splitReport: false,
+      ignoreText:
+        saved.ignoreText == null || saved.ignoreText === LEGACY_DEFAULT_IGNORE_TEXT
+          ? DEFAULT_SETTINGS.ignoreText
+          : saved.ignoreText,
+    }
   } catch {
     return DEFAULT_SETTINGS
   }
@@ -156,6 +193,52 @@ function ReportTableHeader() {
   )
 }
 
+function ReportGroups({
+  groups,
+  showCategoryHeadings,
+}: {
+  groups: ReportGroup[]
+  showCategoryHeadings: boolean
+}) {
+  return groups.map((group) => (
+    <section className="report-group" key={group.key}>
+      {showCategoryHeadings && <h3>{group.label}</h3>}
+      {group.items.map((item) => <ReportRow item={item} key={item.key} />)}
+    </section>
+  ))
+}
+
+function VerifySection({
+  groups,
+  packet = false,
+}: {
+  groups: ReportGroup[]
+  packet?: boolean
+}) {
+  if (groups.length === 0) return null
+
+  return (
+    <section className={`verify-section${packet ? ' packet-verify-section' : ''}`}>
+      <div className="verify-heading">
+        <AlertTriangle size={20} />
+        <div>
+          <h3>VERIFY STOCK</h3>
+          <p>These items are out of stock, negative, or missing from the inventory report.</p>
+        </div>
+      </div>
+      <ReportTableHeader />
+      {groups.map((group) => (
+        <section className="verify-group" key={group.key}>
+          <h4>{group.label}</h4>
+          {group.items.map((item) => (
+            <ReportRow item={item} key={`${item.key}-${item.firstSeen}`} />
+          ))}
+        </section>
+      ))}
+    </section>
+  )
+}
+
 function App() {
   const [salesFiles, setSalesFiles] = useState<LoadedFile[]>([])
   const [inventoryFiles, setInventoryFiles] = useState<LoadedFile[]>([])
@@ -179,6 +262,35 @@ function App() {
     () => (baseReport ? applyReportSettings(baseReport, settings) : null),
     [baseReport, settings],
   )
+
+  const splitParts = useMemo(() => {
+    if (!report) return []
+    if (!settings.splitReport) {
+      return [{
+        groups: report.groups,
+        verifyGroups: [],
+        restockItemCount: report.restockItemCount,
+        verifyItemCount: 0,
+        workload: report.restockItemCount,
+      }]
+    }
+    return splitReportIntoParts(
+      report.groups,
+      settings.printVerifyStock ? report.verifyGroups : [],
+      settings.splitCount,
+    )
+  }, [report, settings.printVerifyStock, settings.splitCount, settings.splitReport])
+
+  const totalPrintableRows = (report?.restockItemCount ?? 0) +
+    (settings.printVerifyStock ? report?.verifyItems.length ?? 0 : 0)
+  const maximumNumericSplit = Math.max(2, Math.min(5, totalPrintableRows || 2))
+  const splitCountOptions = Array.from(
+    { length: maximumNumericSplit - 1 },
+    (_, index) => index + 2,
+  )
+  const splitCountValue = settings.splitCount === 'max'
+    ? 'max'
+    : String(Math.max(2, Math.min(settings.splitCount, maximumNumericSplit)))
 
   const addSalesFiles = useCallback(async (files: File[]) => {
     const loaded = await Promise.all(files.map(readFile))
@@ -275,8 +387,8 @@ function App() {
       <header className="site-header">
         <img src="/rrg-header-logo.png" alt="Red Raccoon Games" />
         <div className="title-lockup">
-          <h1>RRG Restock Helper</h1>
-          <span className="version-badge">v0.1.0</span>
+          <h1>RRG Restockulator</h1>
+          <span className="version-badge">v0.1.2</span>
         </div>
         <img src="/rrg-header-logo.png" alt="" aria-hidden="true" />
       </header>
@@ -363,7 +475,7 @@ function App() {
             <section className="stats-grid no-print" aria-label="Processing summary">
               <div><strong>{report.restockItemCount}</strong><span>Restock items</span></div>
               <div><strong>{report.verifyItems.length}</strong><span>Verify stock</span></div>
-              <div><strong>{report.hiddenSingles}</strong><span>Singles hidden</span></div>
+              <div><strong>{report.hiddenMiscAndSingles}</strong><span>Misc. / Singles hidden</span></div>
               <div><strong>{report.ignoredItems}</strong><span>Ignored by rule</span></div>
             </section>
 
@@ -396,13 +508,22 @@ function App() {
                     onChange={(event) => updateSetting('showCategoryHeadings', event.target.checked)}
                   />
                   <span className="toggle-track"><span /></span>
-                  <span><strong>Print category headings</strong><small>Group the report with its inventory path.</small></span>
+                  <span><strong>Print Category Headings</strong><small>Group the report with its inventory path.</small></span>
                 </label>
                 <label className="toggle-setting">
                   <input
                     type="checkbox"
-                    checked={settings.includeCardSingles}
-                    onChange={(event) => updateSetting('includeCardSingles', event.target.checked)}
+                    checked={settings.printVerifyStock}
+                    onChange={(event) => updateSetting('printVerifyStock', event.target.checked)}
+                  />
+                  <span className="toggle-track"><span /></span>
+                  <span><strong>Print Verify Stock</strong><small>Include the Verify Stock section on printed pages.</small></span>
+                </label>
+                <label className="toggle-setting">
+                  <input
+                    type="checkbox"
+                    checked={settings.includeMiscAndSingles}
+                    onChange={(event) => updateSetting('includeMiscAndSingles', event.target.checked)}
                   />
                   <span className="toggle-track"><span /></span>
                   <span><strong>Include card singles</strong><small>Show products inside any Singles category.</small></span>
@@ -419,18 +540,52 @@ function App() {
                   />
                 </label>
                 <label className="field-setting">
-                  <span><strong>Row spacing</strong></span>
-                  <select
-                    value={settings.rowDensity}
-                    onChange={(event) => updateSetting('rowDensity', event.target.value as ReportSettings['rowDensity'])}
-                  >
-                    <option value="microcompact">Micro-Compact</option>
-                    <option value="subcompact">Subcompact</option>
-                    <option value="compact">Compact</option>
-                    <option value="standard">Standard</option>
-                    <option value="roomy">Roomy</option>
-                  </select>
+                  <span><strong>Row spacing</strong><small>{ROW_DENSITY_LABELS[settings.rowDensity]}</small></span>
+                  <input
+                    type="range"
+                    min="0"
+                    max={ROW_DENSITIES.length - 1}
+                    step="1"
+                    value={ROW_DENSITIES.indexOf(settings.rowDensity)}
+                    onChange={(event) =>
+                      updateSetting('rowDensity', ROW_DENSITIES[Number(event.target.value)] ?? 'standard')
+                    }
+                  />
                 </label>
+                <div className="split-setting">
+                  <label className="toggle-setting split-toggle-control">
+                    <input
+                      type="checkbox"
+                      checked={settings.splitReport}
+                      onChange={(event) => updateSetting('splitReport', event.target.checked)}
+                    />
+                    <span className="toggle-track"><span /></span>
+                    <span>
+                      <strong>Split restock list</strong>
+                      <small>
+                        {settings.splitCount === 'max'
+                          ? 'Automatic · about 25 work units per part'
+                          : 'Balanced by workload'}
+                      </small>
+                    </span>
+                  </label>
+                  <select
+                    aria-label="Divide restock list into"
+                    value={splitCountValue}
+                    disabled={!settings.splitReport}
+                    onChange={(event) =>
+                      updateSetting(
+                        'splitCount',
+                        event.target.value === 'max' ? 'max' : Number(event.target.value),
+                      )
+                    }
+                  >
+                    {splitCountOptions.map((count) => (
+                      <option value={count} key={count}>{count}</option>
+                    ))}
+                    <option value="max">MAX25</option>
+                  </select>
+                </div>
                 <label className="ignore-setting">
                   <span>
                     <strong>Ignore list</strong>
@@ -466,41 +621,47 @@ function App() {
                 <span><strong>{report.groups.length}</strong> sections</span>
               </div>
 
-              <ReportTableHeader />
-              {report.groups.map((group) => (
-                <section className="report-group" key={group.key}>
-                  {settings.showCategoryHeadings && <h3>{group.label}</h3>}
-                  {group.items.map((item) => <ReportRow item={item} key={item.key} />)}
-                </section>
-              ))}
+              {splitParts.map((part, partIndex) => {
+                return (
+                  <section
+                    className={settings.splitReport ? 'split-report-part' : 'report-part'}
+                    key={`part-${partIndex}-${part.groups.map((group) => group.key).join('|')}`}
+                  >
+                    {settings.splitReport && (
+                      <div className="split-part-heading">
+                        <strong>RESTOCK PART {partIndex + 1} OF {splitParts.length}</strong>
+                        <span>
+                          {part.restockItemCount} restock · {part.verifyItemCount} verify ·{' '}
+                          {part.workload} work unit{part.workload === 1 ? '' : 's'}
+                        </span>
+                      </div>
+                    )}
+                    {part.groups.length > 0 && (
+                      <>
+                        <ReportTableHeader />
+                        <ReportGroups
+                          groups={part.groups}
+                          showCategoryHeadings={settings.showCategoryHeadings}
+                        />
+                      </>
+                    )}
+                    {settings.splitReport && (
+                      <VerifySection groups={part.verifyGroups} packet />
+                    )}
+                  </section>
+                )
+              })}
 
-              {report.groups.length === 0 && (
+              {report.groups.length === 0 && !settings.splitReport && (
                 <div className="empty-report">No in-stock restock items remain with the current settings.</div>
               )}
 
-              {report.verifyItems.length > 0 && (
-                <section className="verify-section">
-                  <div className="verify-heading">
-                    <AlertTriangle size={20} />
-                    <div>
-                      <h3>VERIFY STOCK</h3>
-                      <p>These items are out of stock, negative, or missing from the inventory report.</p>
-                    </div>
-                  </div>
-                  <ReportTableHeader />
-                  {report.verifyGroups.map((group) => (
-                    <section className="verify-group" key={group.key}>
-                      <h4>{group.label}</h4>
-                      {group.items.map((item) => (
-                        <ReportRow item={item} key={`${item.key}-${item.firstSeen}`} />
-                      ))}
-                    </section>
-                  ))}
-                </section>
+              {!settings.splitReport && settings.printVerifyStock && (
+                <VerifySection groups={report.verifyGroups} />
               )}
 
               <footer className="print-footer">
-                Generated by RRG Restock Helper · {report.salesFileNames.length} sales report{report.salesFileNames.length === 1 ? '' : 's'} compared with {report.inventoryFileName}
+                Generated by RRG Restockulator · {report.salesFileNames.length} sales report{report.salesFileNames.length === 1 ? '' : 's'} compared with {report.inventoryFileName}
               </footer>
             </section>
           </>
@@ -509,7 +670,7 @@ function App() {
       </main>
 
       <footer className="site-footer no-print">
-        <span>Updated: 8/12/2026</span>
+        <span>Updated: 8/14/2026</span>
         <span>As always, let me know if you have any issues or ideas with this -Derek</span>
       </footer>
     </div>
