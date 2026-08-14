@@ -102,6 +102,8 @@ describe('restock processing', () => {
   it('hides card singles by default', () => {
     expect(DEFAULT_SETTINGS.includeMiscAndSingles).toBe(false)
     expect(DEFAULT_SETTINGS.splitReport).toBe(false)
+    expect(DEFAULT_SETTINGS.printFontSize).toBe(9)
+    expect(DEFAULT_SETTINGS.rowDensity).toBe('compact')
   })
 
   it('keeps the default ignore list alphabetical with ad hoc last', () => {

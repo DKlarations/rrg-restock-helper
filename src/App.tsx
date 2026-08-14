@@ -30,7 +30,8 @@ type LoadedFile = CsvInput & {
   size: number
 }
 
-const STORAGE_KEY = 'rrg-restock-helper-settings-v7'
+const STORAGE_KEY = 'rrg-restock-helper-settings-v8'
+const PREVIOUS_STORAGE_KEY = 'rrg-restock-helper-settings-v7'
 const LEGACY_DEFAULT_IGNORE_TEXT = [
   'Soda',
   'Food',
@@ -58,14 +59,25 @@ const ROW_DENSITY_LABELS: Record<ReportSettings['rowDensity'], string> = {
 
 function loadSettings(): ReportSettings {
   try {
-    const stored = localStorage.getItem(STORAGE_KEY)
+    const currentStored = localStorage.getItem(STORAGE_KEY)
+    const previousStored = localStorage.getItem(PREVIOUS_STORAGE_KEY)
+    const stored = currentStored ?? previousStored
     if (!stored) return DEFAULT_SETTINGS
 
     const saved = JSON.parse(stored) as Partial<ReportSettings>
+    const isMigratingPreviousDefaults = currentStored == null && previousStored != null
     return {
       ...DEFAULT_SETTINGS,
       ...saved,
       splitReport: false,
+      printFontSize:
+        isMigratingPreviousDefaults && saved.printFontSize === 10
+          ? DEFAULT_SETTINGS.printFontSize
+          : saved.printFontSize ?? DEFAULT_SETTINGS.printFontSize,
+      rowDensity:
+        isMigratingPreviousDefaults && saved.rowDensity === 'standard'
+          ? DEFAULT_SETTINGS.rowDensity
+          : saved.rowDensity ?? DEFAULT_SETTINGS.rowDensity,
       ignoreText:
         saved.ignoreText == null || saved.ignoreText === LEGACY_DEFAULT_IGNORE_TEXT
           ? DEFAULT_SETTINGS.ignoreText

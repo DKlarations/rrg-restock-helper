@@ -109,8 +109,8 @@ export const DEFAULT_SETTINGS: ReportSettings = {
   printVerifyStock: true,
   splitReport: false,
   splitCount: 2,
-  printFontSize: 10,
-  rowDensity: 'standard',
+  printFontSize: 9,
+  rowDensity: 'compact',
   ignoreText: [
     'D&A',
     'Event',
