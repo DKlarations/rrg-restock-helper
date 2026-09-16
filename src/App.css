@@ -362,7 +362,11 @@ main {
 }
 
 .duplicate-details summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   width: fit-content;
+  list-style: none;
   cursor: pointer;
   color: #e2f4ff;
   font-weight: 800;
@@ -410,7 +414,7 @@ main {
   font-weight: 800;
 }
 
-.settings-panel summary::-webkit-details-marker {
+.motion-details summary::-webkit-details-marker {
   display: none;
 }
 
@@ -420,8 +424,14 @@ main {
   gap: 9px;
 }
 
-.settings-panel[open] .summary-chevron {
+.motion-details .summary-chevron {
+  flex: 0 0 auto;
+  transition: transform 160ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.motion-details summary[aria-expanded="true"] .summary-chevron {
   transform: rotate(180deg);
+  transition-duration: 220ms;
 }
 
 .settings-content {
@@ -447,21 +457,37 @@ main {
   align-items: center;
 }
 
-.toggle-setting input {
-  position: absolute;
-  opacity: 0;
-}
-
-.toggle-track {
+.motion-toggle {
+  --rrg-motion-checkbox-size: 16px;
+  --rrg-motion-checkbox-mark: var(--blue-500);
+  display: inline-block;
   position: relative;
   width: 38px;
   height: 22px;
-  border-radius: 20px;
-  background: #476078;
-  transition: 140ms ease;
 }
 
-.toggle-track span {
+/* Keep the original switch footprint; the shared input owns native interaction. */
+.motion-toggle .rrg-motion-checkbox__input {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 38px;
+  height: 22px;
+  opacity: 0;
+}
+
+.motion-toggle::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 20px;
+  background: #476078;
+  transition: background-color 140ms ease;
+  pointer-events: none;
+}
+
+.motion-toggle::after {
+  content: '';
   position: absolute;
   top: 3px;
   left: 3px;
@@ -469,15 +495,56 @@ main {
   height: 16px;
   border-radius: 50%;
   background: #fff;
-  transition: 140ms ease;
+  transition: transform 140ms ease;
+  pointer-events: none;
 }
 
-.toggle-setting input:checked + .toggle-track {
+.motion-toggle:has(input:checked)::before {
   background: var(--blue-500);
 }
 
-.toggle-setting input:checked + .toggle-track span {
+.motion-toggle:has(input:checked)::after,
+.motion-toggle input:checked + .rrg-motion-checkbox__mark {
   transform: translateX(16px);
+}
+
+.motion-toggle .rrg-motion-checkbox__mark {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  z-index: 1;
+  transition: transform 140ms ease;
+}
+
+.motion-toggle:has(input:focus-visible)::before {
+  outline: 3px solid rgba(65, 169, 239, 0.5);
+  outline-offset: 3px;
+}
+
+.motion-toggle:has(input:disabled)::before,
+.motion-toggle:has(input:disabled)::after {
+  opacity: 0.45;
+}
+
+@media (prefers-reduced-motion: reduce), print {
+  .motion-details .summary-chevron,
+  .motion-toggle::before,
+  .motion-toggle::after,
+  .motion-toggle .rrg-motion-checkbox__mark {
+    transition: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .motion-toggle::before,
+  .motion-toggle::after {
+    display: none;
+  }
+
+  .motion-toggle .rrg-motion-checkbox__input {
+    opacity: 1;
+    appearance: auto;
+  }
 }
 
 .toggle-setting strong,

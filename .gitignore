@@ -16,6 +16,9 @@ dist-ssr
 # Private store exports used only for local validation
 Data Samples/
 
+# Local motion browser captures and PDF comparisons
+tmp/motion-*/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { AnimatedCheckbox, TextStateSwap } from '@rrg/ui-motion'
+import MotionDetails from './MotionDetails'
 import {
   AlertTriangle,
   ChevronDown,
@@ -447,7 +449,7 @@ function App() {
           {error && (
             <div className="message error-message" role="alert">
               <AlertTriangle size={18} />
-              <span>{error}</span>
+              <TextStateSwap>{error}</TextStateSwap>
             </div>
           )}
 
@@ -461,7 +463,9 @@ function App() {
               disabled={!salesFiles.length || !inventoryFiles.length || isProcessing}
               onClick={processFiles}
             >
-              {isProcessing ? 'Processing…' : 'Process Reports'}
+              <TextStateSwap reserve={['Processing…', 'Process Reports']}>
+                {isProcessing ? 'Processing…' : 'Process Reports'}
+              </TextStateSwap>
             </button>
           </div>
         </section>
@@ -470,7 +474,11 @@ function App() {
           <>
             <section className="results-toolbar no-print">
               <div>
-                <p className="eyebrow">REPORT READY</p>
+                <p className="eyebrow">
+                  <TextStateSwap reserve={['PROCESSING…', 'REPORT READY']}>
+                    {isProcessing ? 'PROCESSING…' : 'REPORT READY'}
+                  </TextStateSwap>
+                </p>
                 <h2>{report.restockItemCount} items ready to restock</h2>
                 <p>{formatQuantity(report.totalUnitsToPull)} total units to pull</p>
               </div>
@@ -498,46 +506,48 @@ function App() {
                   {report.warnings.map((warning) => <p key={warning}>{warning}</p>)}
                   {report.ignoredReportRows > 0 && <p>{report.ignoredReportRows} footer or incomplete rows were ignored.</p>}
                   {report.duplicateInventoryProductNames.length > 0 && (
-                    <details className="duplicate-details">
-                      <summary>View duplicate product names</summary>
+                    <MotionDetails className="duplicate-details" summary={
+                      <>
+                        View duplicate product names
+                        <ChevronDown size={15} className="summary-chevron" aria-hidden="true" />
+                      </>
+                    }>
                       <pre>{report.duplicateInventoryProductNames.join('\n')}</pre>
-                    </details>
+                    </MotionDetails>
                   )}
                 </div>
               </section>
             )}
 
-            <details className="settings-panel no-print">
-              <summary>
+            <MotionDetails className="settings-panel no-print" summary={
+              <>
                 <span><Settings2 size={19} /> Report &amp; Print Settings</span>
-                <ChevronDown size={19} className="summary-chevron" />
-              </summary>
+                <ChevronDown size={19} className="summary-chevron" aria-hidden="true" />
+              </>
+            }>
               <div className="settings-content">
                 <label className="toggle-setting">
-                  <input
-                    type="checkbox"
+                  <AnimatedCheckbox
+                    wrapperClassName="motion-toggle"
                     checked={settings.showCategoryHeadings}
                     onChange={(event) => updateSetting('showCategoryHeadings', event.target.checked)}
                   />
-                  <span className="toggle-track"><span /></span>
                   <span><strong>Print Category Headings</strong><small>Group the report with its inventory path.</small></span>
                 </label>
                 <label className="toggle-setting">
-                  <input
-                    type="checkbox"
+                  <AnimatedCheckbox
+                    wrapperClassName="motion-toggle"
                     checked={settings.printVerifyStock}
                     onChange={(event) => updateSetting('printVerifyStock', event.target.checked)}
                   />
-                  <span className="toggle-track"><span /></span>
                   <span><strong>Print Verify Stock</strong><small>Include the Verify Stock section on printed pages.</small></span>
                 </label>
                 <label className="toggle-setting">
-                  <input
-                    type="checkbox"
+                  <AnimatedCheckbox
+                    wrapperClassName="motion-toggle"
                     checked={settings.includeMiscAndSingles}
                     onChange={(event) => updateSetting('includeMiscAndSingles', event.target.checked)}
                   />
-                  <span className="toggle-track"><span /></span>
                   <span><strong>Include card singles</strong><small>Show products inside any Singles category.</small></span>
                 </label>
                 <label className="field-setting">
@@ -566,12 +576,11 @@ function App() {
                 </label>
                 <div className="split-setting">
                   <label className="toggle-setting split-toggle-control">
-                    <input
-                      type="checkbox"
+                    <AnimatedCheckbox
+                      wrapperClassName="motion-toggle"
                       checked={settings.splitReport}
                       onChange={(event) => updateSetting('splitReport', event.target.checked)}
                     />
-                    <span className="toggle-track"><span /></span>
                     <span>
                       <strong>Split restock list</strong>
                       <small>
@@ -615,7 +624,7 @@ function App() {
                   />
                 </label>
               </div>
-            </details>
+            </MotionDetails>
 
             <section className="report-card" style={reportStyle}>
               <header className="print-report-header">
@@ -682,7 +691,7 @@ function App() {
       </main>
 
       <footer className="site-footer no-print">
-        <span>Updated: 8.14.2026</span>
+        <span>Updated: 9.15.2026</span>
         <span>As always, let me know if you have any issues or ideas with this -Derek</span>
       </footer>
     </div>
