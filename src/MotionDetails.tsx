@@ -22,14 +22,18 @@ export default function MotionDetails({
   const generatedId = useId()
   const bodyId = id ?? `motion-details-${generatedId}`
   const [expanded, setExpanded] = useState(defaultOpen)
-  const [bodyPresent, setBodyPresent] = useState(defaultOpen)
+  const expandedRef = useRef(defaultOpen)
+  const detailsRef = useRef<HTMLDetailsElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
   const summaryRef = useRef<HTMLElement>(null)
 
   useLayoutEffect(() => {
     const body = bodyRef.current
     if (!body) return
-    const syncPresence = () => setBodyPresent(!body.hidden)
+    // Read current shared presence rather than a queued native toggle's old state.
+    const syncPresence = () => {
+      if (detailsRef.current) detailsRef.current.open = expandedRef.current || !body.hidden
+    }
     const observer = new MutationObserver(syncPresence)
     observer.observe(body, { attributes: true, attributeFilter: ['hidden'] })
     syncPresence()
@@ -37,20 +41,25 @@ export default function MotionDetails({
   }, [expanded])
 
   return (
-    <details className={`motion-details ${className}`.trim()} open={expanded || bodyPresent}
+    <details ref={detailsRef} className={`motion-details ${className}`.trim()} open={defaultOpen}
       onToggle={(event) => {
         // Honor external native changes without treating exit retention as a new open.
         const nativeOpen = event.currentTarget.open
-        if (nativeOpen !== (expanded || bodyPresent)) {
-          setBodyPresent(nativeOpen)
+        if (nativeOpen !== (expandedRef.current || !bodyRef.current?.hidden)) {
+          expandedRef.current = nativeOpen
+          // A native close must not remove layout before shared exit measurement.
+          event.currentTarget.open = nativeOpen || !bodyRef.current?.hidden
           setExpanded(nativeOpen)
         }
       }}>
       <summary ref={summaryRef} aria-expanded={expanded} aria-controls={bodyId}
         onClick={(event) => {
           event.preventDefault()
-          setBodyPresent(true)
-          setExpanded((current) => !current)
+          const next = !expandedRef.current
+          expandedRef.current = next
+          // Make the natural body measurable before the shared opening effect.
+          if (detailsRef.current) detailsRef.current.open = true
+          setExpanded(next)
         }}>
         {summary}
       </summary>

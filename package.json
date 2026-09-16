@@ -11,7 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@rrg/ui-motion": "file:vendor/rrg-ui-motion-0.2.0.tgz",
+    "@rrg/ui-motion": "file:vendor/rrg-ui-motion-0.3.1.tgz",
     "lucide-react": "^1.31.0",
     "papaparse": "^5.5.4",
     "react": "^19.2.8",

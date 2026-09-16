@@ -4,6 +4,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdir, readFile, readdir, unlink, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { installMotionFixture, syntheticReports } from '../tools/motion/fixture.mjs'
+import { checkMotionGeometry } from './check-motion-geometry.mjs'
 
 // Start an isolated agent-browser session on about:blank, never an unguarded app.
 // node scripts/check-motion-browser.mjs <local-CDP-URL> <local-origin> baseline|compare [--behavior-only]
@@ -142,13 +143,17 @@ const printCapture = async (mode, reduced = false) => {
   })
   await waitFor(() => window.__motion.prints === 1, 'Actual print handler did not complete')
   await media('print', reduced ? 'reduce' : 'no-preference')
+  // Screen focus can scroll the retained fixture; normalize before exact SVG boxes.
+  await evaluate(async () => { window.scrollTo(0, 0); await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))) })
   const proof = await evaluate(() => {
     const report = document.querySelector('.report-card')
     if (report.querySelector('input, [class*="rrg-motion"]')) throw new Error('Printed paper marks/report were converted to interactive motion')
     if ([...report.querySelectorAll('.pull-checkbox')].some((mark) => mark.tagName !== 'SPAN')) throw new Error('Static paper checkbox semantics changed')
+    const origin = report.getBoundingClientRect()
     const geometry = [...report.querySelectorAll('*')].map((element) => {
       const box = element.getBoundingClientRect(); const style = getComputedStyle(element)
-      return { tag: element.tagName, class: element.getAttribute('class'), x: box.x, y: box.y, width: box.width, height: box.height, font: style.font, transform: style.transform, breakBefore: style.breakBefore, breakInside: style.breakInside }
+      // Print layout is relative to its report, independent of screen scroll/focus.
+      return { tag: element.tagName, class: element.getAttribute('class'), x: box.x - origin.x, y: box.y - origin.y, width: box.width, height: box.height, font: style.font, transform: style.transform, breakBefore: style.breakBefore, breakInside: style.breakInside }
     })
     return { markup: report.outerHTML, text: report.innerText, geometry, marks: report.querySelectorAll('.pull-checkbox').length, categories: [...report.querySelectorAll('.report-group h3, .verify-group h4')].map((element) => element.textContent), rows: [...report.querySelectorAll('.report-row:not(.report-table-header)')].map((row) => ({ name: row.querySelector('.report-item-name').textContent, pull: row.querySelector('.qty-to-pull').textContent, sold: row.querySelector('.qty-sold').textContent, stock: row.querySelector('.current-stock').textContent })) }
   })
@@ -339,12 +344,12 @@ const behaviors = async () => {
 
 try {
   await pageCall('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1100, deviceScaleFactor: 1, mobile: false })
-  if (selection !== '--behavior-only') {
+  if (selection !== '--behavior-only' && selection !== '--geometry-only') {
     for (const mode of ['ordinary', 'split3', 'max25']) await printCapture(mode)
     if (stage === 'compare') await printCapture('ordinary', true)
   }
-  if (stage === 'compare') await behaviors()
-  else {
+  if (stage === 'compare' && selection !== '--geometry-only') await behaviors()
+  else if (stage === 'baseline' && selection !== '--geometry-only') {
     await fresh(); await settings()
     await screenshot('workspace-desktop')
     for (const width of [390, 320]) {
@@ -353,6 +358,7 @@ try {
       await writeFile(join(output, `layout-${width}.json`), JSON.stringify(await evaluate(() => ({ width: innerWidth, documentWidth: document.documentElement.scrollWidth })), null, 2))
     }
   }
+  if (stage === 'compare' || selection === '--geometry-only') await checkMotionGeometry({ evaluate, pageCall, fresh, record, app: 'restock', baseline: stage === 'baseline', save: (name, data) => writeFile(join(output, name), JSON.stringify(data, null, 2)), capture: (name, data) => writeFile(join(output, name), Buffer.from(data, 'base64')) })
   fixtureRuns.push(await evaluate(() => window.__motion.forbidden))
   fixtureRuns.forEach((requests) => assert.deepEqual(requests, []))
   assert.deepEqual(network.forbidden, [])

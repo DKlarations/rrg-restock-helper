@@ -4,10 +4,11 @@ Implemented locally on September 15, 2026. The application remains version 0.1.2
 
 ## Shared package
 
-- Package: `@rrg/ui-motion` **0.2.0**.
-- Archive: `vendor/rrg-ui-motion-0.2.0.tgz`.
-- Dependency: `file:vendor/rrg-ui-motion-0.2.0.tgz`, with the existing npm lockfile.
-- SHA-256: `7b0b86612ec76ff1c1b08abb7e1af4f0fbfda053044a1c4672a9b20a66e86c3e`.
+- Package: `@rrg/ui-motion` **0.3.1**.
+- Archive: `vendor/rrg-ui-motion-0.3.1.tgz`.
+- Dependency: `file:vendor/rrg-ui-motion-0.3.1.tgz`, with the existing npm lockfile.
+- SHA-256: `16743f0797362bda2c0524b235fa890416632b9ca45c464e053e623c12216ca2`.
+- Matching Forge handoff: [`vendor/MOTION-HANDOFF-0.3.1.md`](../vendor/MOTION-HANDOFF-0.3.1.md).
 - Canonical source: Forge's `packages/rrg-ui-motion`; copied from its verified
   archive without editing the source project or compiled package.
 - Scoped CSS is imported once in `src/main.tsx`, before application styles.
@@ -67,7 +68,82 @@ reduced motion. Chevron timing matches its 220 ms open / 160 ms close and
   surfaces. Shared print resets cannot change report transforms or geometry.
 - No new disclosure hides required fields, main actions, or unresolved warnings.
 
-## Verification
+## Native disclosure repair
+
+Both controls remain inline Accordion disclosures. `MotionDetails` now physically
+opens native `details` before the shared body measures opening. The newest logical
+state is held in a ref, and native closure follows the shared body's actual
+`hidden` presence. A browser-driven close retains the body for exit measurement;
+queued `toggle` notifications cannot override a newer reopen or revive a settled
+close. There is no second timer or presence state. Children remain mounted, with
+immediate inert/aria-hidden on logical close and focus returned to the summary.
+
+The existing content wrappers already own their grid, padding and margins; the
+shared outer height envelopes stay undecorated. The duplicate-name `pre` retains
+its original 260 px scroll limit, and the ignore textarea keeps its resize handle.
+No parsing, report, quantities, exclusions, persistence or printable JSX changed.
+
+The focused `scripts/check-motion-geometry.mjs` extension samples every frame at
+normal speed and 0.2 playback speed for both controls at 1440, 390 and 320 px.
+It checks natural inner/control dimensions, envelope width, final-close footprint,
+new disclosure overflow, rapid reversals and live reduced motion, including focus
+after a direct reduced-motion close. JSON traces and intermediate PNGs accompany
+the existing synthetic fixtures. The focused unit test adds delayed native-toggle
+notifications after a newer close/reopen. `--geometry-only` runs just the new
+browser checks; the ordinary command also runs behavior and print comparisons.
+
+Print geometry is measured relative to the printable report after resetting
+screen scroll, avoiding false differences caused by focus scrolling and SVG
+floating-point coordinates. Markup, quantities, transforms, pagination and PDF
+raster comparisons remain exact.
+
+## Repair verification: 0.3.1, September 15, 2026
+
+- `npm run test`: **18 passed** (11 domain tests and 7 native-disclosure tests).
+  `npm run lint`, `npm run build` (including TypeScript), and
+  `git diff --check`: passed.
+- Final installed-archive Chromium run: **35 checks passed**, including 18 focused
+  frame/presence checks, 13 existing behavior checks and 4 print comparisons.
+  Both disclosures retain natural inner/control dimensions through every sampled
+  opening/closing frame at 1440, 390 and 320 px, at normal and 0.2 playback speed.
+  Final presence causes no footprint jump or new disclosure overflow.
+- Real native Enter/Space and label activation, immediate switches, retained and
+  persisted ignore drafts, focus recovery, rapid reversals, live reduced motion
+  and direct reduced-motion closes passed. The textarea resized during opening
+  without compressing controls; 40 duplicate names retained their existing scroll
+  viewport. Both disclosures can remain open together and warnings stay visible.
+- Ordinary, split-three and MAX25 output plus reduced ordinary output match the
+  pre-repair baseline exactly in report markup, text, quantities, categories,
+  element geometry/transforms, **3 US Letter pages** and **67 static paper marks**
+  per case, including PDF raster hashes. The ordinary motion cases print while
+  the duplicate Accordion is actively opening. No physical printer was used.
+- Existing narrow-page overflow remains **421 px at a 390 px viewport** and
+  **367 px at 320 px**; the internal report remains 720 px wide. There is no new
+  disclosure overflow. Intermediate narrow screenshots were visually inspected.
+  Only Chromium was exercised.
+- Archive metadata, SHA-256, matching handoff and lock integrity agree. The exact
+  dependency was installed with `npm install --offline --ignore-scripts --no-audit
+  --no-fund` after a scoped manifest/lock update. Other locked packages are
+  unchanged from the source snapshot; React/React DOM remain deduplicated 19.2.8
+  and shared CSS remains imported once. Older archives are preserved unchanged.
+- The footer already read `Updated: 9.15.2026`, the actual local implementation
+  date, so its value remains correct. CSV parsing, exclusions, balance aggregation,
+  settings rules and printable JSX are unchanged.
+
+The run used the isolated `http://127.0.0.1:5233` origin with synthetic CSVs,
+mocked printing and blocked remote/API requests. Evidence is under
+`tmp/motion-browser-evidence/compare/` (`checks.json`, `network.json`, frame traces,
+intermediate PNGs and PDFs). Source snapshot:
+`C:\Users\DKlar\AppData\Local\RRG-Motion-Repair-Snapshots\20260915-231857\RRG Inventory Restock Helper`.
+
+Repair files are `src/MotionDetails.tsx` and its focused test, both browser
+regression scripts, `package.json`/`package-lock.json`, versioned vendor
+archive/handoff and this document. No commit, push, publication or deployment
+was performed. Unexpected duplicate inventory names still have uncertain upstream
+meaning: the app combines their ordinary inventory balances and exposes the
+complete names beneath the processing warning.
+
+## Original integration verification
 
 Focused native-disclosure tests use the existing Vitest/Testing Library tools.
 Browser verification uses synthetic sales and inventory CSVs, including ordinary
