@@ -14,6 +14,7 @@ import {
   X,
 } from 'lucide-react'
 import './App.css'
+import type { ReportWorkerResult } from './report.worker'
 import {
   applyReportSettings,
   buildBaseReport,
@@ -104,6 +105,7 @@ function FileDropZone({
   description,
   multiple,
   files,
+  reading,
   onFiles,
   onRemove,
 }: {
@@ -111,10 +113,12 @@ function FileDropZone({
   description: string
   multiple: boolean
   files: LoadedFile[]
+  reading: number
   onFiles: (files: File[]) => void
   onRemove: (id: string) => void
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
+  const dropZoneRef = useRef<HTMLButtonElement>(null)
   const [isDragging, setIsDragging] = useState(false)
 
   const acceptFiles = useCallback(
@@ -126,7 +130,7 @@ function FileDropZone({
   )
 
   return (
-    <section className="upload-column">
+    <section className="upload-column" aria-busy={reading > 0}>
       <div className="upload-heading">
         <span className="step-number">{multiple ? '1' : '2'}</span>
         <div>
@@ -136,6 +140,7 @@ function FileDropZone({
       </div>
 
       <button
+        ref={dropZoneRef}
         type="button"
         className={`drop-zone ${isDragging ? 'is-dragging' : ''} ${files.length ? 'has-files' : ''}`}
         onClick={() => inputRef.current?.click()}
@@ -166,13 +171,19 @@ function FileDropZone({
         <span>or click to browse</span>
       </button>
 
-      <div className="file-list" aria-live="polite">
+      <p className="file-status" role="status"><TextStateSwap>{reading ? `Reading ${reading} ${reading === 1 ? 'file' : 'files'}…` : files.length ? `${files.length} ${files.length === 1 ? 'report' : 'reports'} ready.` : 'No reports selected.'}</TextStateSwap></p>
+      <div className="file-list">
         {files.map((file) => (
           <div className="file-pill" key={file.id}>
             <FileSpreadsheet size={17} aria-hidden="true" />
             <span title={file.name}>{file.name}</span>
             <small>{Math.max(1, Math.round(file.size / 1024))} KB</small>
-            <button type="button" aria-label={`Remove ${file.name}`} onClick={() => onRemove(file.id)}>
+            <button type="button" aria-label={`Remove ${file.name}`} onClick={(event) => {
+              const row = event.currentTarget.closest('.file-pill')
+              const next = (row?.nextElementSibling ?? row?.previousElementSibling)?.querySelector('button')
+              onRemove(file.id)
+              requestAnimationFrame(() => (next?.isConnected ? next : dropZoneRef.current)?.focus({ preventScroll: true }))
+            }}>
               <X size={16} />
             </button>
           </div>
@@ -260,7 +271,29 @@ function App() {
   const [settings, setSettings] = useState<ReportSettings>(loadSettings)
   const [error, setError] = useState('')
   const [isProcessing, setIsProcessing] = useState(false)
+  const [readingSales, setReadingSales] = useState(0)
+  const [readingInventory, setReadingInventory] = useState(false)
+  const intakeEpoch = useRef(0)
+  const inventoryRequest = useRef(0)
+  const processingRequest = useRef(0)
+  const processingWorker = useRef<Worker | null>(null)
+  const processingInFlight = useRef(false)
   const [printDate, setPrintDate] = useState(() => new Date())
+  const isReading = readingSales > 0 || readingInventory
+  const cancelProcessing = useCallback(() => {
+    processingRequest.current++
+    processingWorker.current?.terminate()
+    processingWorker.current = null
+    processingInFlight.current = false
+    setIsProcessing(false)
+  }, [])
+
+  useEffect(() => () => {
+    processingRequest.current++
+    processingWorker.current?.terminate()
+    processingWorker.current = null
+    processingInFlight.current = false
+  }, [])
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(settings))
@@ -307,41 +340,100 @@ function App() {
     : String(Math.max(2, Math.min(settings.splitCount, maximumNumericSplit)))
 
   const addSalesFiles = useCallback(async (files: File[]) => {
-    const loaded = await Promise.all(files.map(readFile))
-    setSalesFiles((current) => {
-      const ids = new Set(current.map((file) => file.id))
-      return [...current, ...loaded.filter((file) => !ids.has(file.id))]
-    })
-    setBaseReport(null)
+    if (!files.length) return
+    const epoch = intakeEpoch.current
+    cancelProcessing()
+    setReadingSales((count) => count + files.length)
     setError('')
-  }, [])
+    try {
+      const loaded = await Promise.all(files.map(readFile))
+      if (epoch !== intakeEpoch.current) return
+      setSalesFiles((current) => {
+        const ids = new Set(current.map((file) => file.id))
+        return [...current, ...loaded.filter((file) => !ids.has(file.id))]
+      })
+      setBaseReport(null)
+    } catch {
+      if (epoch === intakeEpoch.current) setError('A sales report could not be read. Choose the file again.')
+    } finally {
+      if (epoch === intakeEpoch.current) setReadingSales((count) => count - files.length)
+    }
+  }, [cancelProcessing])
 
   const addInventoryFile = useCallback(async (files: File[]) => {
     const file = files.at(-1)
     if (!file) return
-    setInventoryFiles([await readFile(file)])
-    setBaseReport(null)
+    const request = ++inventoryRequest.current
+    cancelProcessing()
+    setReadingInventory(true)
     setError('')
-  }, [])
+    try {
+      const loaded = await readFile(file)
+      if (request !== inventoryRequest.current) return
+      setInventoryFiles([loaded])
+      setBaseReport(null)
+    } catch {
+      if (request === inventoryRequest.current) setError('The inventory report could not be read. Choose the file again.')
+    } finally {
+      if (request === inventoryRequest.current) setReadingInventory(false)
+    }
+  }, [cancelProcessing])
 
   const processFiles = () => {
-    if (!salesFiles.length || !inventoryFiles.length) return
+    if (!salesFiles.length || !inventoryFiles.length || processingInFlight.current || isReading) return
+    const request = ++processingRequest.current
+    processingInFlight.current = true
     setIsProcessing(true)
     setError('')
-    window.setTimeout(() => {
-      try {
-        const nextReport = buildBaseReport(salesFiles, inventoryFiles[0])
-        setBaseReport(nextReport)
-      } catch (processingError) {
+    const finish = (result: ReportWorkerResult) => {
+      if (request !== processingRequest.current || !processingInFlight.current) return
+      processingWorker.current?.terminate()
+      processingWorker.current = null
+      processingInFlight.current = false
+      if (result.ok) setBaseReport(result.report)
+      else {
         setBaseReport(null)
-        setError(processingError instanceof Error ? processingError.message : 'The reports could not be processed.')
-      } finally {
-        setIsProcessing(false)
+        setError(result.error)
       }
-    }, 25)
+      setIsProcessing(false)
+    }
+    // Retain the existing local parser as a fallback for browsers that block workers.
+    let fallbackScheduled = false
+    const runFallback = () => {
+      if (fallbackScheduled) return
+      fallbackScheduled = true
+      window.setTimeout(() => {
+        if (request !== processingRequest.current) return
+        try { finish({ ok: true, report: buildBaseReport(salesFiles, inventoryFiles[0]) }) }
+        catch (error) { finish({ ok: false, error: error instanceof Error ? error.message : 'The reports could not be processed.' }) }
+      }, 25)
+    }
+    if (typeof Worker === 'undefined') { runFallback(); return }
+    try {
+      const worker = new Worker(new URL('./report.worker.ts', import.meta.url), { type: 'module' })
+      processingWorker.current = worker
+      worker.onmessage = (event: MessageEvent<ReportWorkerResult>) => finish(event.data)
+      worker.onerror = (event) => {
+        event.preventDefault()
+        if (request !== processingRequest.current) return
+        worker.terminate()
+        processingWorker.current = null
+        runFallback()
+      }
+      worker.postMessage({ sales: salesFiles, inventory: inventoryFiles[0] })
+    } catch {
+      processingWorker.current?.terminate()
+      processingWorker.current = null
+      runFallback()
+    }
   }
 
   const reset = () => {
+    intakeEpoch.current++
+    inventoryRequest.current++
+    cancelProcessing()
+    setReadingSales(0)
+    setReadingInventory(false)
     setSalesFiles([])
     setInventoryFiles([])
     setBaseReport(null)
@@ -414,7 +506,7 @@ function App() {
               <p className="eyebrow">UPLOAD REPORTS</p>
               <h2>Choose the files to compare</h2>
             </div>
-            {(salesFiles.length > 0 || inventoryFiles.length > 0) && (
+            {(salesFiles.length > 0 || inventoryFiles.length > 0 || isReading) && (
               <button type="button" className="icon-button text-button" onClick={reset}>
                 <Trash2 size={17} /> Clear all
               </button>
@@ -427,8 +519,10 @@ function App() {
               description="One or more EmailProductSales CSV files"
               multiple
               files={salesFiles}
+              reading={readingSales}
               onFiles={addSalesFiles}
               onRemove={(id) => {
+                cancelProcessing()
                 setSalesFiles((files) => files.filter((file) => file.id !== id))
                 setBaseReport(null)
               }}
@@ -438,8 +532,12 @@ function App() {
               description="One InventoryReport CSV file"
               multiple={false}
               files={inventoryFiles}
+              reading={readingInventory ? 1 : 0}
               onFiles={addInventoryFile}
               onRemove={() => {
+                inventoryRequest.current++
+                cancelProcessing()
+                setReadingInventory(false)
                 setInventoryFiles([])
                 setBaseReport(null)
               }}
@@ -460,7 +558,7 @@ function App() {
             <button
               type="button"
               className="primary-button"
-              disabled={!salesFiles.length || !inventoryFiles.length || isProcessing}
+              disabled={!salesFiles.length || !inventoryFiles.length || isProcessing || isReading}
               onClick={processFiles}
             >
               <TextStateSwap reserve={['Processing…', 'Process Reports']}>
@@ -483,10 +581,10 @@ function App() {
                 <p>{formatQuantity(report.totalUnitsToPull)} total units to pull</p>
               </div>
               <div className="toolbar-actions">
-                <button type="button" className="secondary-button" onClick={processFiles}>
+                <button type="button" className="secondary-button" disabled={isProcessing || isReading} onClick={processFiles}>
                   <RotateCcw size={17} /> Reprocess
                 </button>
-                <button type="button" className="primary-button" onClick={printReport}>
+                <button type="button" className="primary-button" disabled={isProcessing || isReading} onClick={printReport}>
                   <Printer size={18} /> Print Restock List
                 </button>
               </div>
@@ -691,7 +789,7 @@ function App() {
       </main>
 
       <footer className="site-footer no-print">
-        <span>Updated: 9.15.2026</span>
+        <span>Updated: 10.15.2026</span>
         <span>As always, let me know if you have any issues or ideas with this -Derek</span>
       </footer>
     </div>

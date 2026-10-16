@@ -1,5 +1,31 @@
 # Restockulator motion
 
+## Interaction polish, October 15, 2026
+
+File intake now shows actual pending reads in a reserved status line and keeps the
+drop-zone footprint stable. Concurrent sales batches retain existing accumulation
+and deduplication rules; the newest inventory selection wins. Reset or removal
+invalidates stale operations, and file removal restores focus to the next file or
+upload control. Errors clear busy state and remain visible. Processing/printing
+controls cannot use partially read or stale results.
+
+Synthetic local measurements found roughly 315–337 ms of main-thread work for
+10,000 sales and inventory rows each. The unchanged `buildBaseReport` function now
+runs in a local module worker with cancellation and a guarded main-thread fallback
+for unavailable or blocked workers. Parsing, duplicate balances, exclusions and
+all numeric rules are unchanged; no file data leaves the browser. Duplicate-name
+meaning remains uncertain upstream; balances combine and the full list remains
+available beneath the warning.
+
+Buttons use 140 ms explicit property transitions with the shared easing, without
+translation or scaling. Reduced motion removes those transitions. Focus rings and
+printed report marks remain intact. `src/App.test.tsx` covers intake races, stale
+results, errors, cancellation, duplicate processing and worker fallback. The
+synthetic `scripts/check-polish-browser.mjs` covers frame stability, focus, exact
+worker/direct output equivalence, active browser frames during large reports,
+CSP denial, already-loaded offline processing, and reduced motion. Existing
+motion/PDF comparisons remain the print-equivalence check.
+
 Implemented locally on September 15, 2026. The application remains version 0.1.2.
 
 ## Shared package

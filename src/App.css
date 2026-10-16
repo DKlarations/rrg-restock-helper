@@ -22,6 +22,18 @@
     linear-gradient(180deg, var(--navy-900) 0%, var(--navy-950) 100%);
 }
 
+@media screen {
+  .app-shell button {
+    transition: background-color 140ms cubic-bezier(0.22, 1, 0.36, 1), border-color 140ms cubic-bezier(0.22, 1, 0.36, 1), color 140ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 140ms cubic-bezier(0.22, 1, 0.36, 1), opacity 140ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .app-shell button:hover:not(:disabled) { border-color: var(--blue-400); }
+  .app-shell button:active:not(:disabled) { box-shadow: inset 0 0 0 2px rgba(168, 219, 247, .35); }
+  .app-shell button:focus-visible { outline: 2px solid var(--blue-200); outline-offset: 3px; }
+}
+@media (prefers-reduced-motion: reduce), print {
+  .app-shell button { transition: none; }
+}
+
 .site-header,
 main,
 .site-footer {
@@ -174,19 +186,20 @@ main {
   border-radius: 9px;
   color: var(--blue-200);
   background: #0c1a29;
-  transition: 150ms ease;
+  transition: border-color 150ms ease, background-color 150ms ease, box-shadow 150ms ease;
 }
 
 .drop-zone:hover,
 .drop-zone.is-dragging {
   border-color: var(--blue-400);
   background: #10283d;
-  transform: translateY(-1px);
 }
 
 .drop-zone.has-files {
-  min-height: 100px;
+  min-height: 145px;
 }
+
+.file-status { min-height: 2.8em; margin: 10px 0 0; color: var(--muted); font-size: 0.76rem; line-height: 1.4; }
 
 .drop-zone input {
   display: none;
@@ -280,7 +293,7 @@ main {
 }
 
 .primary-button:hover:not(:disabled) {
-  filter: brightness(1.08);
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.32), 0 7px 20px rgba(30, 132, 196, 0.3);
 }
 
 .primary-button:disabled {
@@ -482,7 +495,7 @@ main {
   inset: 0;
   border-radius: 20px;
   background: #476078;
-  transition: background-color 140ms ease;
+  transition: background-color 140ms cubic-bezier(0.22, 1, 0.36, 1);
   pointer-events: none;
 }
 
@@ -495,7 +508,7 @@ main {
   height: 16px;
   border-radius: 50%;
   background: #fff;
-  transition: transform 140ms ease;
+  transition: transform 140ms cubic-bezier(0.22, 1, 0.36, 1);
   pointer-events: none;
 }
 
@@ -513,7 +526,7 @@ main {
   top: 3px;
   left: 3px;
   z-index: 1;
-  transition: transform 140ms ease;
+  transition: transform 140ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .motion-toggle:has(input:focus-visible)::before {
