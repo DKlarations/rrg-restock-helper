@@ -51,7 +51,7 @@ checkout can install it without a sibling checkout or a private registry.
 | Native checkbox stroke | **Print Category Headings**, **Print Verify Stock**, **Include card singles**, and **Split restock list**. |
 | Accordion | Native **View duplicate product names** and **Report & Print Settings** disclosures, each with a turning chevron and independent open state. The ignore list remains inside the existing settings disclosure. |
 | PanelReveal | Inapplicable: there is no separate secondary conditional settings/detail surface. Both existing disclosures use Accordion. |
-| Sliding indicator | Inapplicable: there are no horizontal tabs or mutually exclusive mode buttons. Packet count remains a select; ranges and action buttons retain their existing semantics. |
+| Sliding indicator | **Soft / Hard** are actual restock modes, with a shared sliding indicator. Native tab roles, roving focus, arrow/Home/End keys, and retained hidden panels are owned by the app. Packet count remains a select. |
 
 Text comes from actual `isProcessing`/`error` state. The existing 25 ms processing
 schedule and 0 ms print schedule are unchanged. The package renders current text
@@ -260,3 +260,69 @@ No commit, push, package publication, or production deployment is part of this w
   `tools/motion/fixture.mjs`, `tools/motion/vite.config.mjs`.
 - Guidance and generated-output exclusions: `AGENTS.md`, `.gitignore`,
   `docs/MOTION.md`.
+
+## Hard restock mode — October 30, 2026
+
+Soft remains the default and retains its existing processing, duplicate-balance
+aggregation, settings, and print layout. The new Soft/Hard tab strip uses
+SlidingTabs for the indicator only. The app owns tab semantics, arrow/Home/End
+keys, focus, and retained hidden panels; no body transition runs on a mode switch.
+Both modes share the current inventory upload. Each keeps its own preferences.
+
+Hard uses AnimatedCheckbox for category selection, real stock/exclusion toggles,
+and splitting. Nested category disclosures use one Accordion body per opening.
+Hard settings and duplicate-name disclosures reuse MotionDetails. TextStateSwap
+reflects actual inventory reading and error state. No new motion dependency or
+package version was introduced.
+
+The Hard report has separate scoped print styles: Letter portrait, category
+headings, one line per raw inventory entry, and three static paper checkboxes.
+Negative balances appear in Current Stock. Full product names shrink within
+their column using measured widths, with batched writes/reads, font-load and
+resize handling, and a beforeprint refresh. Long names can become smaller than
+the selected base size to honor the approved single-line layout.
+
+Hard keeps duplicate inventory entries separate. Their upstream meaning remains
+uncertain. Soft still combines ordinary duplicate balances and exposes its full
+duplicate-name list beneath the warning; Hard exposes its list and marks repeated
+names without summing their balances. Permanent exclusions stay out of all Hard
+rows, category choices, and duplicate diagnostics.
+
+Release validation covers 55 unique tests, TypeScript and lint, plus 16 synthetic Hard
+browser checks and 35 Soft motion/behavior checks. All ten saved inventory exports
+were audited for raw row preservation and stock totals. Soft ordinary, split-three,
+MAX25 and reduced-motion PDFs match the pre-change local baseline. Hard ordinary
+and split-three PDFs use 612 × 792 point Letter portrait pages; all names remain
+complete on one line. Browser PDF captures do not validate a physical printer.
+
+Repeat Hard checks against an isolated local browser session and local server:
+
+```powershell
+node scripts/check-hard-browser.mjs <local-CDP-websocket> http://127.0.0.1:5221
+```
+
+The runner uses a disposable browser context, synthetic inventory, blocked remote
+requests, and stubbed window.print. Screenshots, PDFs, and check results are saved
+under ignored `tmp/hard-restock-evidence/`. Reload opens Soft, clears uploaded
+inventory, and restores only Hard preferences. No digital findings are stored.
+
+### October 30 copy and spacing refinement
+
+The mode buttons now contain only centered **SOFT** and **HARD** labels. Hard's
+upload heading is **File Upload**, the category heading is **Categories**, and
+the requested introductory help and stock-filter subtitles were removed. Category
+rows and expanders are 24 px high. Checkbox, disclosure, filtering, and persistence
+behavior is unchanged. Both printable footers now read `Generated with {filename}`;
+this intentional text change postdates the earlier Soft PDF baseline comparison.
+
+Validation: 55 unique tests, TypeScript, lint and production build passed. The updated
+Hard runner passed 19 checks against the built preview, including centered labels,
+removed copy, category spacing, both filename-only footers, and portrait output.
+
+The Hard print heading and column labels no longer explain upstairs/backstock,
+and the unused staff-name line is removed. Packet numbering remains available.
+
+The clean release suite contains 53 self-contained tests and two optional audits
+of the ten private saved exports. The audits skip when those local files are not
+present. Earlier 82-test local runs also discovered 27 unchanged tests inside the
+temporary pre-change backup; that backup is not part of the release.

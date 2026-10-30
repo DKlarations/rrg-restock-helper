@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AnimatedCheckbox, TextStateSwap } from '@rrg/ui-motion'
+import { AnimatedCheckbox, SlidingTabs, TextStateSwap } from '@rrg/ui-motion'
 import MotionDetails from './MotionDetails'
+import HardRestockPanel from './HardRestockPanel'
 import {
   AlertTriangle,
   ChevronDown,
@@ -106,6 +107,7 @@ function FileDropZone({
   multiple,
   files,
   reading,
+  step,
   onFiles,
   onRemove,
 }: {
@@ -114,6 +116,7 @@ function FileDropZone({
   multiple: boolean
   files: LoadedFile[]
   reading: number
+  step?: number
   onFiles: (files: File[]) => void
   onRemove: (id: string) => void
 }) {
@@ -132,7 +135,7 @@ function FileDropZone({
   return (
     <section className="upload-column" aria-busy={reading > 0}>
       <div className="upload-heading">
-        <span className="step-number">{multiple ? '1' : '2'}</span>
+        <span className="step-number">{step ?? (multiple ? '1' : '2')}</span>
         <div>
           <h2>{title}</h2>
           <p>{description}</p>
@@ -265,11 +268,14 @@ function VerifySection({
 }
 
 function App() {
+  const [mode, setMode] = useState<'soft' | 'hard'>('soft')
+  const [hardOpened, setHardOpened] = useState(false)
   const [salesFiles, setSalesFiles] = useState<LoadedFile[]>([])
   const [inventoryFiles, setInventoryFiles] = useState<LoadedFile[]>([])
   const [baseReport, setBaseReport] = useState<BaseReport | null>(null)
   const [settings, setSettings] = useState<ReportSettings>(loadSettings)
   const [error, setError] = useState('')
+  const [inventoryError, setInventoryError] = useState('')
   const [isProcessing, setIsProcessing] = useState(false)
   const [readingSales, setReadingSales] = useState(0)
   const [readingInventory, setReadingInventory] = useState(false)
@@ -367,13 +373,18 @@ function App() {
     cancelProcessing()
     setReadingInventory(true)
     setError('')
+    setInventoryError('')
     try {
       const loaded = await readFile(file)
       if (request !== inventoryRequest.current) return
       setInventoryFiles([loaded])
       setBaseReport(null)
     } catch {
-      if (request === inventoryRequest.current) setError('The inventory report could not be read. Choose the file again.')
+      if (request === inventoryRequest.current) {
+        const message = 'The inventory report could not be read. Choose the file again.'
+        setError(message)
+        setInventoryError(message)
+      }
     } finally {
       if (request === inventoryRequest.current) setReadingInventory(false)
     }
@@ -438,6 +449,21 @@ function App() {
     setInventoryFiles([])
     setBaseReport(null)
     setError('')
+    setInventoryError('')
+  }
+
+  const removeInventoryFile = () => {
+    inventoryRequest.current++
+    cancelProcessing()
+    setReadingInventory(false)
+    setInventoryFiles([])
+    setBaseReport(null)
+    setInventoryError('')
+  }
+
+  const openMode = (next: 'soft' | 'hard') => {
+    if (next === 'hard') setHardOpened(true)
+    setMode(next)
   }
 
   const updateSetting = <K extends keyof ReportSettings>(key: K, value: ReportSettings[K]) => {
@@ -500,6 +526,25 @@ function App() {
       </header>
 
       <main>
+        <SlidingTabs className="mode-switcher no-print" value={mode} role="tablist" aria-label="Restock mode"
+          onKeyDown={(event) => {
+            if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+            event.preventDefault()
+            const next = event.key === 'Home' ? 'soft' : event.key === 'End' ? 'hard' : mode === 'soft' ? 'hard' : 'soft'
+            openMode(next)
+            document.getElementById(`${next}-tab`)?.focus()
+          }}>
+          {(['soft', 'hard'] as const).map((value) => (
+            <button type="button" role="tab" id={`${value}-tab`} key={value}
+              data-motion-tab={value} className={`mode-button${mode === value ? ' active' : ''}`}
+              aria-selected={mode === value} aria-controls={`${value}-panel`} tabIndex={mode === value ? 0 : -1}
+              onClick={() => openMode(value)}>
+              <strong>{value === 'soft' ? 'SOFT' : 'HARD'}</strong>
+            </button>
+          ))}
+        </SlidingTabs>
+
+        <div id="soft-panel" className="mode-panel" role="tabpanel" aria-labelledby="soft-tab" hidden={mode !== 'soft'}>
         <section className="workspace-panel no-print">
           <div className="panel-title-row">
             <div>
@@ -534,13 +579,7 @@ function App() {
               files={inventoryFiles}
               reading={readingInventory ? 1 : 0}
               onFiles={addInventoryFile}
-              onRemove={() => {
-                inventoryRequest.current++
-                cancelProcessing()
-                setReadingInventory(false)
-                setInventoryFiles([])
-                setBaseReport(null)
-              }}
+              onRemove={removeInventoryFile}
             />
           </div>
 
@@ -780,16 +819,33 @@ function App() {
               )}
 
               <footer className="print-footer">
-                Generated by RRG Restockulator · {report.salesFileNames.length} sales report{report.salesFileNames.length === 1 ? '' : 's'} compared with {report.inventoryFileName}
+                Generated with {report.inventoryFileName}
               </footer>
             </section>
           </>
         )}
+        </div>
+
+        <div id="hard-panel" className="mode-panel" role="tabpanel" aria-labelledby="hard-tab" hidden={mode !== 'hard'}>
+          {hardOpened && (
+            <HardRestockPanel
+              inventory={inventoryFiles[0] ?? null}
+              busy={readingInventory}
+              active={mode === 'hard'}
+              inventoryError={inventoryError}
+              inventoryControl={
+                <FileDropZone title="Current inventory" description="One InventoryReport CSV file. Shared with Soft."
+                  multiple={false} step={1} files={inventoryFiles} reading={readingInventory ? 1 : 0}
+                  onFiles={addInventoryFile} onRemove={removeInventoryFile} />
+              }
+            />
+          )}
+        </div>
 
       </main>
 
       <footer className="site-footer no-print">
-        <span>Updated: 10.15.2026</span>
+        <span>Updated: 10.30.2026</span>
         <span>As always, let me know if you have any issues or ideas with this -Derek</span>
       </footer>
     </div>

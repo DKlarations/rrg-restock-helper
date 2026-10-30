@@ -201,7 +201,10 @@ const behaviors = async () => {
     if (row('Mixed Location').querySelector('.qty-to-pull').textContent !== '2') throw new Error('HH balance contributed to mixed stock')
     const duplicateNames = document.querySelector('.duplicate-details pre').textContent.split('\n')
     if (duplicateNames.length !== 40) throw new Error('Full duplicate list missing')
-    if (document.querySelector('.rrg-motion-tabs')) throw new Error('Inapplicable tabs manufactured')
+    const tabs = [...document.querySelectorAll('.mode-switcher [role="tab"]')]
+    if (tabs.map((tab) => tab.dataset.motionTab).join(',') !== 'soft,hard'
+      || tabs[0].getAttribute('aria-selected') !== 'true'
+      || !document.getElementById('hard-panel')?.hidden) throw new Error('Soft/Hard mode tabs or inactive panel changed')
     return { duplicateNames: duplicateNames.length, restockRows: 61, verifyRows: document.querySelectorAll('.verify-section .pull-checkbox').length, firstStock: '5', mixedPull: '2' }
   }))
   await settings()

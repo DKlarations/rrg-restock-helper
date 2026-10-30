@@ -2,6 +2,8 @@
 
 RRG Restockulator turns Red Raccoon Games sales and inventory CSV exports into a categorized, printable floor-restock list.
 
+**Soft** is the default, sales-driven restock list. **Hard** produces inventory-only category checklists for physical stock counts. Both modes share the current inventory upload and keep their own settings.
+
 ## How it works
 
 1. Drop in one or more `EmailProductSales` CSV files.
@@ -10,6 +12,21 @@ RRG Restockulator turns Red Raccoon Games sales and inventory CSV exports into a
 4. Adjust the print settings and print the restock list.
 
 All CSV processing happens locally in the browser. The files are not uploaded to an application server.
+
+## Hard restock checklists
+
+1. Open **Hard** and upload an `InventoryReport` CSV, or use the inventory already uploaded in Soft. No sales report is needed.
+2. Search the category tree and choose one or more categories. A parent includes its descendants. Detailed paths, including Board Games filing letters and numbers, are preserved.
+3. Adjust the zero-stock, negative-stock-only, and exclusion toggles. The preview updates as the selection changes.
+4. Print a portrait US Letter checklist, optionally divided into 2–5 packets or MAX25. Packets balance by item count and retain category groups where practical.
+
+Each item occupies one line: item name, Current Stock, Upstairs checkbox and amount, Backstock checkbox and amount, and Unable to Locate checkbox. Upstairs is the sales floor; Backstock is the downstairs storage room. Staff write the physical quantities they find. Negative balances appear directly in Current Stock. Long names shrink within their column to stay complete on one line.
+
+Zero-stock items start included. Negative stock only is an optional toggle. Paint and paint markers, dice, Deactivate, and Z Online Sales start excluded; those exclusions are configurable independently of Soft. Painting Accessories and D&D miniatures remain available. The ignore list also accepts exact items, categories, category paths, and item-name prefixes ending in `*`. Permanent Hidey Hole, event, and membership-discount exclusions still apply.
+
+Hard preserves every valid inventory entry separately, including repeated names within the same category. It does not add duplicate balances together. A warning and complete duplicate-name list make repeated names visible for review.
+
+Hard preferences are saved in the current browser, including category selections, exclusions, filters, and print choices. Switching modes keeps the working reports; reloading opens Soft and requires a fresh inventory upload. Checkmarks and amounts are completed on paper. Digital count tracking and follow-up lists based on staff findings are future work.
 
 ## Restock rules
 
@@ -27,7 +44,7 @@ Permanent exclusions include Events, Tickets, Rentals, Club Membership discounts
 
 ## Duplicate inventory names
 
-The inventory exports contain some unexpected duplicate product names whose upstream meaning is not yet clear. For now, the app combines the balances of matching ordinary inventory records. After processing, the warning panel includes a collapsible plain-text list showing every duplicated product name so the behavior remains visible and reviewable.
+The inventory exports contain some unexpected duplicate product names whose upstream meaning is not yet clear. Soft combines the balances of matching ordinary inventory records. Hard retains each inventory entry separately. In both modes, the warning panel includes a collapsible plain-text list showing every duplicated product name so the behavior remains visible and reviewable.
 
 ## Print settings
 
@@ -55,6 +72,7 @@ Validation commands:
 
 ```bash
 npm run test
+npm run typecheck
 npm run lint
 npm run build
 ```

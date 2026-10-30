@@ -18,6 +18,7 @@ Data Samples/
 
 # Local motion browser captures and PDF comparisons
 tmp/motion-*/
+tmp/hard-restock-evidence/
 
 # Editor directories and files
 .vscode/*

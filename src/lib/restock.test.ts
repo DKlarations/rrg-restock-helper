@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { readFileSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   applyReportSettings,
@@ -329,7 +329,7 @@ describe('restock processing', () => {
     expect(base.matchedItems.find((item) => item.item === 'Widget A')?.qtySold).toBe(3)
   })
 
-  it('processes every real sample pair without breaking report invariants', () => {
+  it.skipIf(!existsSync(join(process.cwd(), 'Data Samples')))('processes every real sample pair without breaking report invariants', () => {
     const samplesRoot = join(process.cwd(), 'Data Samples')
     const folders = readdirSync(samplesRoot, { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
