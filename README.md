@@ -13,6 +13,24 @@ RRG Restockulator turns Red Raccoon Games sales and inventory CSV exports into a
 
 All CSV processing happens locally in the browser. The files are not uploaded to an application server.
 
+## Additional Soft restocks
+
+The optional **Subtract already-handled sales** control starts off. Leave it off to use the existing Soft upload, calculation, and printing workflow.
+
+1. Enable subtraction and process the current sales and inventory as usual. Each run can combine multiple nonoverlapping sales files.
+2. Once the run is covered, choose **Move to already handled** beneath Step 1. Its files move into the visible history under Step 3 with a **Handled** date/time. Their cumulative sales become the comparison point, current sales uploads clear, and inventory/settings stay in place. Previewing and printing never advance the handled totals or change that timestamp.
+3. Upload the next cumulative sales report, covering the same starting date through a later cutoff, and process again. Totals of 10, 15, and 17 produce additional sales of 10, 5, and 2; the existing inventory limits still determine the pull quantities.
+
+To begin partway through a day, upload an already-covered report to Step 1 and move it without needing to generate another preview. Alternatively, upload files from one previously handled run directly under **Already-handled sales**: the selected batch is validated and saved automatically once inventory is available, without clearing current sales uploads. Imported groups show an **Added** timestamp because their actual historical pull time is unknown. Failed moves/imports keep their files available for correction.
+
+Handled filenames and timestamps are always visible while subtraction is enabled. The newest group is labeled **Current comparison**; earlier groups remain visible underneath it. Only item-level quantities are collapsed. Separate days within one run add together; overlapping cumulative snapshots belong in separate runs. The CSV cannot reliably identify reporting dates, so staff must choose matching coverage.
+
+Decreased or missing sales are shown as errors, with no negative pulls. Valid items can still print. Marking a run handled retains each errored item's earlier handled quantity, preventing duplicate pulls if its sales total later rebounds. All sales in the input count as handled, including user-hidden categories, stock-limited quantities, and Verify Stock items. Enabling a hidden category later does not bring back its older sales.
+
+Follow-up printouts say **Additional restock**, identify the run, generation time, and source files, and show only the additional sales in **Qty Sold**. Stock caps, exclusions, Verify Stock, category settings, and packet splitting keep their existing behavior. Inventory can be reused or replaced. Comparison errors appear on screen and on the printout; the sales calculation and handled history are available on screen for review.
+
+Use the existing **Clear all** action to reset sales, handled history, and inventory when changing the sales starting date or correcting a mistaken handled run. Midnight does not reset anything. Files, repeat mode, and history exist only in the current page session: refreshing or closing the page clears them. Report settings remain saved as before.
+
 ## Hard restock checklists
 
 1. Open **Hard** and upload an `InventoryReport` CSV, or use the inventory already uploaded in Soft. No sales report is needed.

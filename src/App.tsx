@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AnimatedCheckbox, SlidingTabs, TextStateSwap } from '@rrg/ui-motion'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { Accordion, AnimatedCheckbox, SlidingTabs, TextStateSwap } from '@rrg/ui-motion'
 import MotionDetails from './MotionDetails'
 import HardRestockPanel from './HardRestockPanel'
+import RepeatRestockPanel, { RepeatErrors, RepeatPrintSources, type HandledRun, type RepeatReportContext } from './RepeatRestockPanel'
 import {
   AlertTriangle,
+  ArrowDown,
   ChevronDown,
   FileSpreadsheet,
   FileUp,
@@ -108,6 +110,10 @@ function FileDropZone({
   files,
   reading,
   step,
+  footer,
+  uploadButtonRef,
+  emptyStatus = 'No reports selected.',
+  disabled = false,
   onFiles,
   onRemove,
 }: {
@@ -117,19 +123,24 @@ function FileDropZone({
   files: LoadedFile[]
   reading: number
   step?: number
+  footer?: ReactNode
+  uploadButtonRef?: RefObject<HTMLButtonElement | null>
+  emptyStatus?: string
+  disabled?: boolean
   onFiles: (files: File[]) => void
   onRemove: (id: string) => void
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
-  const dropZoneRef = useRef<HTMLButtonElement>(null)
+  const ownDropZoneRef = useRef<HTMLButtonElement>(null)
+  const dropZoneRef = uploadButtonRef ?? ownDropZoneRef
   const [isDragging, setIsDragging] = useState(false)
 
   const acceptFiles = useCallback(
     (fileList: FileList | null) => {
-      if (!fileList) return
+      if (!fileList || disabled) return
       onFiles([...fileList].filter((file) => file.name.toLowerCase().endsWith('.csv')))
     },
-    [onFiles],
+    [onFiles, disabled],
   )
 
   return (
@@ -145,6 +156,7 @@ function FileDropZone({
       <button
         ref={dropZoneRef}
         type="button"
+        disabled={disabled}
         className={`drop-zone ${isDragging ? 'is-dragging' : ''} ${files.length ? 'has-files' : ''}`}
         onClick={() => inputRef.current?.click()}
         onDragEnter={(event) => {
@@ -164,6 +176,7 @@ function FileDropZone({
           type="file"
           accept=".csv,text/csv"
           multiple={multiple}
+          disabled={disabled}
           onChange={(event) => {
             acceptFiles(event.target.files)
             event.currentTarget.value = ''
@@ -174,7 +187,7 @@ function FileDropZone({
         <span>or click to browse</span>
       </button>
 
-      <p className="file-status" role="status"><TextStateSwap>{reading ? `Reading ${reading} ${reading === 1 ? 'file' : 'files'}…` : files.length ? `${files.length} ${files.length === 1 ? 'report' : 'reports'} ready.` : 'No reports selected.'}</TextStateSwap></p>
+      <p className="file-status" role="status"><TextStateSwap>{reading ? `Reading ${reading} ${reading === 1 ? 'file' : 'files'}…` : files.length ? `${files.length} ${files.length === 1 ? 'report' : 'reports'} ready.` : emptyStatus}</TextStateSwap></p>
       <div className="file-list">
         {files.map((file) => (
           <div className="file-pill" key={file.id}>
@@ -192,6 +205,7 @@ function FileDropZone({
           </div>
         ))}
       </div>
+      {footer}
     </section>
   )
 }
@@ -279,14 +293,27 @@ function App() {
   const [isProcessing, setIsProcessing] = useState(false)
   const [readingSales, setReadingSales] = useState(0)
   const [readingInventory, setReadingInventory] = useState(false)
+  const [repeatEnabled, setRepeatEnabled] = useState(false)
+  const [handledFiles, setHandledFiles] = useState<LoadedFile[]>([])
+  const [handledHistory, setHandledHistory] = useState<HandledRun[]>([])
+  const [readingHandled, setReadingHandled] = useState(0)
+  const [repeatStatus, setRepeatStatus] = useState('')
+  const [repeatContext, setRepeatContext] = useState<RepeatReportContext | null>(null)
+  const [processingTarget, setProcessingTarget] = useState<'current' | 'move' | 'handled'>('current')
+  const processingTargetRef = useRef<'current' | 'move' | 'handled'>('current')
+  const autoImportAttempt = useRef<{ files: LoadedFile[]; inventory: LoadedFile } | null>(null)
+  const handledEpoch = useRef(0)
+  const repeatToggleRef = useRef<HTMLInputElement>(null)
+  const salesUploadRef = useRef<HTMLButtonElement>(null)
   const intakeEpoch = useRef(0)
   const inventoryRequest = useRef(0)
   const processingRequest = useRef(0)
   const processingWorker = useRef<Worker | null>(null)
   const processingInFlight = useRef(false)
   const [printDate, setPrintDate] = useState(() => new Date())
-  const isReading = readingSales > 0 || readingInventory
+  const isReading = readingSales > 0 || readingInventory || (repeatEnabled && readingHandled > 0)
   const cancelProcessing = useCallback(() => {
+    if (processingInFlight.current && processingTargetRef.current === 'handled') autoImportAttempt.current = null
     processingRequest.current++
     processingWorker.current?.terminate()
     processingWorker.current = null
@@ -390,20 +417,93 @@ function App() {
     }
   }, [cancelProcessing])
 
-  const processFiles = () => {
-    if (!salesFiles.length || !inventoryFiles.length || processingInFlight.current || isReading) return
+  const addHandledFiles = useCallback(async (files: File[]) => {
+    if (!files.length) return
+    const epoch = handledEpoch.current
+    cancelProcessing()
+    setReadingHandled((count) => count + files.length)
+    setBaseReport(null)
+    setError('')
+    setRepeatStatus('')
+    try {
+      const loaded = await Promise.all(files.map(readFile))
+      if (epoch !== handledEpoch.current) return
+      setHandledFiles((current) => {
+        const ids = new Set(current.map((file) => file.id))
+        return [...current, ...loaded.filter((file) => {
+          if (ids.has(file.id)) return false
+          ids.add(file.id)
+          return true
+        })]
+      })
+    } catch {
+      if (epoch === handledEpoch.current) setError('An already-handled sales report could not be read. Choose the file again.')
+    } finally {
+      if (epoch === handledEpoch.current) setReadingHandled((count) => count - files.length)
+    }
+  }, [cancelProcessing])
+
+  const saveHandledRun = (files: LoadedFile[], result: BaseReport, source: 'move' | 'upload') => {
+    if (!result.repeat) return
+    const comparison = result.repeat
+    const retainedItems = comparison.comparisons.filter((row) => row.error).length
+    const fileNames = files.map((file) => file.name)
+    setHandledHistory((history) => [...history, {
+      number: history.length + 1,
+      source,
+      markedAt: new Date().toISOString(),
+      fileNames,
+      sourceFileNames: retainedItems > 0 || comparison.nextHandledTotals.some((total) => total.excluded)
+        ? [...new Set([...(history.at(-1)?.sourceFileNames ?? []), ...fileNames])]
+        : fileNames,
+      latestTotals: comparison.latestTotals,
+      totals: comparison.nextHandledTotals,
+      retainedItems,
+      errors: comparison.comparisons.filter((row) => row.error),
+    }])
+    setRepeatStatus(`${source === 'move' ? 'Moved' : 'Added'} ${files.length} ${files.length === 1 ? 'report' : 'reports'} to already handled.`)
+    setBaseReport(null)
+    setRepeatContext(null)
+  }
+
+  const processFiles = (target: 'current' | 'move' | 'handled' = 'current') => {
+    const inputs = target === 'handled' ? handledFiles : salesFiles
+    if (!inputs.length || !inventoryFiles.length || processingInFlight.current || isReading || (target !== 'current' && !repeatEnabled)) return
+    if (target !== 'handled' && repeatEnabled && handledFiles.length > 0) return
+    const handled = handledHistory.at(-1)
+    const handledTotals = repeatEnabled ? handled?.totals ?? [] : undefined
     const request = ++processingRequest.current
     processingInFlight.current = true
+    processingTargetRef.current = target
     setIsProcessing(true)
+    setProcessingTarget(target)
     setError('')
+    setRepeatStatus('')
     const finish = (result: ReportWorkerResult) => {
       if (request !== processingRequest.current || !processingInFlight.current) return
       processingWorker.current?.terminate()
       processingWorker.current = null
       processingInFlight.current = false
-      if (result.ok) setBaseReport(result.report)
+      if (result.ok) {
+        if (target === 'handled') {
+          saveHandledRun(inputs, result.report, 'upload')
+          setHandledFiles([])
+        } else if (target === 'move') {
+          saveHandledRun(inputs, result.report, 'move')
+          setSalesFiles([])
+          requestAnimationFrame(() => salesUploadRef.current?.focus({ preventScroll: true }))
+        } else {
+          setBaseReport(result.report)
+          setRepeatContext(repeatEnabled ? {
+            runNumber: handledHistory.length + 1,
+            generatedAt: new Date().toISOString(),
+            handledFileNames: handled?.sourceFileNames ?? [],
+          } : null)
+        }
+      }
       else {
         setBaseReport(null)
+        setRepeatContext(null)
         setError(result.error)
       }
       setIsProcessing(false)
@@ -415,7 +515,7 @@ function App() {
       fallbackScheduled = true
       window.setTimeout(() => {
         if (request !== processingRequest.current) return
-        try { finish({ ok: true, report: buildBaseReport(salesFiles, inventoryFiles[0]) }) }
+        try { finish({ ok: true, report: buildBaseReport(inputs, inventoryFiles[0], handledTotals) }) }
         catch (error) { finish({ ok: false, error: error instanceof Error ? error.message : 'The reports could not be processed.' }) }
       }, 25)
     }
@@ -431,7 +531,7 @@ function App() {
         processingWorker.current = null
         runFallback()
       }
-      worker.postMessage({ sales: salesFiles, inventory: inventoryFiles[0] })
+      worker.postMessage({ sales: inputs, inventory: inventoryFiles[0], ...(repeatEnabled ? { handledTotals } : {}) })
     } catch {
       processingWorker.current?.terminate()
       processingWorker.current = null
@@ -439,8 +539,19 @@ function App() {
     }
   }
 
+  // A Step 3 upload is already handled by definition. Import once its files and
+  // inventory are ready; a failed attempt waits for replacement/removal instead
+  // of retrying forever. Cancelled work is eligible to resume with newer inputs.
+  useEffect(() => {
+    if (!repeatEnabled || !handledFiles.length || !inventoryFiles.length || isReading || isProcessing || processingInFlight.current) return
+    if (autoImportAttempt.current?.files === handledFiles && autoImportAttempt.current.inventory === inventoryFiles[0]) return
+    autoImportAttempt.current = { files: handledFiles, inventory: inventoryFiles[0] }
+    processFiles('handled')
+  })
+
   const reset = () => {
     intakeEpoch.current++
+    handledEpoch.current++
     inventoryRequest.current++
     cancelProcessing()
     setReadingSales(0)
@@ -450,6 +561,26 @@ function App() {
     setBaseReport(null)
     setError('')
     setInventoryError('')
+    setRepeatEnabled(false)
+    setHandledFiles([])
+    setHandledHistory([])
+    setReadingHandled(0)
+    setRepeatStatus('')
+    setRepeatContext(null)
+    autoImportAttempt.current = null
+  }
+
+  const toggleRepeat = (enabled: boolean) => {
+    cancelProcessing()
+    if (!enabled) {
+      handledEpoch.current++
+      setReadingHandled(0)
+    }
+    setRepeatEnabled(enabled)
+    setBaseReport(null)
+    setRepeatContext(null)
+    setError('')
+    setRepeatStatus('')
   }
 
   const removeInventoryFile = () => {
@@ -551,7 +682,7 @@ function App() {
               <p className="eyebrow">UPLOAD REPORTS</p>
               <h2>Choose the files to compare</h2>
             </div>
-            {(salesFiles.length > 0 || inventoryFiles.length > 0 || isReading) && (
+            {(salesFiles.length > 0 || inventoryFiles.length > 0 || isReading || handledHistory.length > 0 || handledFiles.length > 0) && (
               <button type="button" className="icon-button text-button" onClick={reset}>
                 <Trash2 size={17} /> Clear all
               </button>
@@ -565,6 +696,13 @@ function App() {
               multiple
               files={salesFiles}
               reading={readingSales}
+              uploadButtonRef={salesUploadRef}
+              footer={repeatEnabled && <button type="button" className="secondary-button repeat-move-button"
+                disabled={!salesFiles.length || !inventoryFiles.length || isProcessing || isReading || handledFiles.length > 0}
+                onClick={() => processFiles('move')}>
+                <ArrowDown size={17} aria-hidden="true" />
+                <TextStateSwap reserve={['Moving…', 'Move to already handled']}>{isProcessing && processingTarget === 'move' ? 'Moving…' : 'Move to already handled'}</TextStateSwap>
+              </button>}
               onFiles={addSalesFiles}
               onRemove={(id) => {
                 cancelProcessing()
@@ -583,6 +721,32 @@ function App() {
             />
           </div>
 
+          <div className="repeat-option">
+            <label className="toggle-setting">
+              <AnimatedCheckbox ref={repeatToggleRef} wrapperClassName="motion-toggle"
+                aria-label="Subtract already-handled sales" aria-controls="repeat-restock-controls"
+                checked={repeatEnabled} onChange={(event) => toggleRepeat(event.target.checked)} />
+              <span><strong>Subtract already-handled sales</strong></span>
+            </label>
+            <Accordion id="repeat-restock-controls" open={repeatEnabled} triggerRef={repeatToggleRef}>
+              <RepeatRestockPanel history={handledHistory} report={baseReport}
+                status={isProcessing && processingTarget === 'handled' ? 'Adding handled reports…'
+                  : handledFiles.length > 0 && !inventoryFiles.length ? 'Waiting for inventory.' : repeatStatus}
+                handledUpload={<FileDropZone title="Already-handled sales" step={3}
+                  description="Files from one previously handled run" multiple files={handledFiles}
+                  emptyStatus={handledHistory.length ? '' : 'No handled reports.'}
+                  disabled={isProcessing || isReading}
+                  reading={readingHandled} onFiles={addHandledFiles} onRemove={(id) => {
+                    cancelProcessing()
+                    setHandledFiles((files) => files.filter((file) => file.id !== id))
+                    setBaseReport(null)
+                    setError('')
+                    setRepeatStatus('')
+                  }} />}
+              />
+            </Accordion>
+          </div>
+
           {error && (
             <div className="message error-message" role="alert">
               <AlertTriangle size={18} />
@@ -592,13 +756,16 @@ function App() {
 
           <div className="process-row">
             <p>
-              Files stay on this computer. Nothing is uploaded when the list is processed.
+              {repeatEnabled && handledFiles.length > 0
+                ? error ? 'Remove or replace the unreadable handled reports.'
+                  : inventoryFiles.length ? 'Reading already-handled reports…' : 'Waiting for inventory.'
+                : 'Files stay on this computer. Nothing is uploaded when the list is processed.'}
             </p>
             <button
               type="button"
               className="primary-button"
-              disabled={!salesFiles.length || !inventoryFiles.length || isProcessing || isReading}
-              onClick={processFiles}
+              disabled={!salesFiles.length || !inventoryFiles.length || isProcessing || isReading || (repeatEnabled && handledFiles.length > 0)}
+              onClick={() => processFiles()}
             >
               <TextStateSwap reserve={['Processing…', 'Process Reports']}>
                 {isProcessing ? 'Processing…' : 'Process Reports'}
@@ -620,7 +787,7 @@ function App() {
                 <p>{formatQuantity(report.totalUnitsToPull)} total units to pull</p>
               </div>
               <div className="toolbar-actions">
-                <button type="button" className="secondary-button" disabled={isProcessing || isReading} onClick={processFiles}>
+                <button type="button" className="secondary-button" disabled={isProcessing || isReading} onClick={() => processFiles()}>
                   <RotateCcw size={17} /> Reprocess
                 </button>
                 <button type="button" className="primary-button" disabled={isProcessing || isReading} onClick={printReport}>
@@ -766,12 +933,16 @@ function App() {
             <section className="report-card" style={reportStyle}>
               <header className="print-report-header">
                 <div>
-                  <h2>Inventory Restock List</h2>
+                  <h2>{repeatContext?.handledFileNames.length ? 'Additional restock' : 'Inventory Restock List'}</h2>
                 </div>
                 <div className="report-meta">
-                  <span><strong>Date:</strong> {printDate.toLocaleDateString('en-US')}</span>
+                  {repeatContext?.handledFileNames.length
+                    ? <span><strong>Generated:</strong> {new Date(repeatContext.generatedAt).toLocaleString('en-US')}</span>
+                    : <span><strong>Date:</strong> {printDate.toLocaleDateString('en-US')}</span>}
                 </div>
               </header>
+
+              {!!repeatContext?.handledFileNames.length && <RepeatPrintSources context={repeatContext} salesFileNames={report.salesFileNames} />}
 
               <div className="report-summary-strip">
                 <span><strong>{report.restockItemCount}</strong> items</span>
@@ -787,13 +958,14 @@ function App() {
                   >
                     {settings.splitReport && (
                       <div className="split-part-heading">
-                        <strong>RESTOCK PART {partIndex + 1} OF {splitParts.length}</strong>
+                        <strong>{repeatContext?.handledFileNames.length ? 'ADDITIONAL RESTOCK' : 'RESTOCK'} PART {partIndex + 1} OF {splitParts.length}</strong>
                         <span>
                           {part.restockItemCount} restock · {part.verifyItemCount} verify ·{' '}
                           {part.workload} work unit{part.workload === 1 ? '' : 's'}
                         </span>
                       </div>
                     )}
+                    {settings.splitReport && partIndex > 0 && !!repeatContext?.handledFileNames.length && <RepeatPrintSources context={repeatContext} salesFileNames={report.salesFileNames} showGenerated />}
                     {part.groups.length > 0 && (
                       <>
                         <ReportTableHeader />
@@ -811,12 +983,16 @@ function App() {
               })}
 
               {report.groups.length === 0 && !settings.splitReport && (
-                <div className="empty-report">No in-stock restock items remain with the current settings.</div>
+                <div className="empty-report">{repeatContext?.handledFileNames.length && report.repeat?.comparisons.every((row) => row.additional === 0 && !row.error)
+                  ? 'No additional sales to restock.'
+                  : 'No in-stock restock items remain with the current settings.'}</div>
               )}
 
               {!settings.splitReport && settings.printVerifyStock && (
                 <VerifySection groups={report.verifyGroups} />
               )}
+
+              {report.repeat && <RepeatErrors comparisons={report.repeat.comparisons} printable />}
 
               <footer className="print-footer">
                 Generated with {report.inventoryFileName}
@@ -845,7 +1021,7 @@ function App() {
       </main>
 
       <footer className="site-footer no-print">
-        <span>Updated: 10.30.2026</span>
+        <span>Updated: 11.12.2026</span>
         <span>As always, let me know if you have any issues or ideas with this -Derek</span>
       </footer>
     </div>

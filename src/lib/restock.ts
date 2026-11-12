@@ -29,6 +29,29 @@ export type RestockItem = {
   issue?: 'zero-stock' | 'negative-stock' | 'not-found'
 }
 
+export type HandledSalesTotal = {
+  key: string
+  item: string
+  quantity: number
+  categories?: string[]
+  excluded?: boolean
+}
+
+export type RepeatSalesComparison = {
+  key: string
+  item: string
+  latest: number
+  handled: number
+  additional: number
+  error?: string
+}
+
+export type RepeatRestockReport = {
+  latestTotals: HandledSalesTotal[]
+  nextHandledTotals: HandledSalesTotal[]
+  comparisons: RepeatSalesComparison[]
+}
+
 export type BaseReport = {
   matchedItems: RestockItem[]
   unmatchedItems: RestockItem[]
@@ -40,6 +63,7 @@ export type BaseReport = {
   warnings: string[]
   salesFileNames: string[]
   inventoryFileName: string
+  repeat?: RepeatRestockReport
 }
 
 export type ReportGroup = {
@@ -225,9 +249,56 @@ function isHideyHoleInventoryRecord(rawName: string, rawCategories: string[]): b
   )
 }
 
+function inventoryCategorySource(products: InventoryProduct[]): InventoryProduct {
+  return products.find(
+    (product) => product.balance !== 0 && normalizeName(product.categories[0] ?? '') !== 'deactivate',
+  ) ?? products.find((product) => normalizeName(product.categories[0] ?? '') !== 'deactivate') ?? products[0]
+}
+
+function compareHandledSales(
+  latestTotals: HandledSalesTotal[],
+  handledTotals: HandledSalesTotal[],
+): RepeatRestockReport {
+  const latestByKey = new Map(latestTotals.map((total) => [total.key, total]))
+  const handledByKey = new Map(handledTotals.map((total) => [total.key, total]))
+  const keys = new Set([...latestByKey.keys(), ...handledByKey.keys()])
+  const comparisons: RepeatSalesComparison[] = []
+  const nextHandledTotals: HandledSalesTotal[] = []
+
+  for (const key of keys) {
+    const latestTotal = latestByKey.get(key)
+    const handledTotal = handledByKey.get(key)
+    const source = latestTotal ?? handledTotal!
+    const latest = latestTotal?.quantity ?? 0
+    const handled = handledTotal?.quantity ?? 0
+    const rawDifference = latest - handled
+    // Summing files can make otherwise equal decimal quantities differ by machine rounding.
+    const roundingTolerance = Number.EPSILON * Math.max(1, Math.abs(latest), Math.abs(handled)) * 4
+    const difference = Math.abs(rawDifference) <= roundingTolerance ? 0 : rawDifference
+    comparisons.push({
+      key,
+      item: source.item,
+      latest,
+      handled,
+      additional: Math.max(0, difference),
+      ...(difference < 0 ? {
+        error: latestTotal
+          ? 'Latest sales are lower than the quantity already handled.'
+          : 'This previously handled item is missing from the latest sales reports.',
+      } : {}),
+    })
+    // An error must never lower the baseline and create a false pull on a later rebound.
+    nextHandledTotals.push({ ...source, quantity: Math.max(0, latest, handled) })
+  }
+
+  return { latestTotals, nextHandledTotals, comparisons }
+}
+
+/** Supplying handled totals enables repeat restocks; omitting them preserves ordinary Soft processing. */
 export function buildBaseReport(
   salesInputs: CsvInput[],
   inventoryInput: CsvInput,
+  handledTotals?: HandledSalesTotal[],
 ): BaseReport {
   const inventoryRows = parseCsv<InventoryCsvRow>(inventoryInput, REQUIRED_INVENTORY_HEADERS)
   const inventoryMap = new Map<string, InventoryProduct[]>()
@@ -335,6 +406,53 @@ export function buildBaseReport(
     }
   }
 
+  let repeat: RepeatRestockReport | undefined
+  if (handledTotals !== undefined) {
+    const isRepeatExcluded = (total: HandledSalesTotal): boolean => {
+      const matches = inventoryMap.get(total.key)
+      const source = matches ? inventoryCategorySource(matches) : undefined
+      const salesCategories = salesTotals.get(total.key)?.salesCategories ?? []
+      // Current category evidence wins when a product returns from an excluded location/category.
+      const categories = source?.categories ?? (salesCategories.length ? salesCategories : total.categories ?? [])
+      const item = source?.displayName ?? salesTotals.get(total.key)?.displayName ?? total.item
+      return SYSTEM_IGNORED_ITEM_KEYS.has(total.key)
+        || isHideyHoleInventoryRecord(item, categories)
+        || (!matches && hideyHoleProductKeys.has(total.key))
+        || [...categories, ...salesCategories].some((category) => SYSTEM_IGNORED_CATEGORY_KEYS.has(normalizeName(category)))
+    }
+    const latestTotals = [...salesTotals].map(([key, sale]): HandledSalesTotal => {
+      const matches = inventoryMap.get(key)
+      const source = matches ? inventoryCategorySource(matches) : undefined
+      return {
+        key,
+        item: source?.displayName || sale.displayName,
+        quantity: sale.quantity,
+        categories: source?.categories ?? sale.salesCategories,
+      }
+    }).filter((total) => !isRepeatExcluded(total))
+    const visibleHandledTotals: HandledSalesTotal[] = []
+    const excludedHandledTotals: HandledSalesTotal[] = []
+    for (const total of handledTotals) {
+      if (isRepeatExcluded(total)) {
+        // Keep already-known quantities internally through inventory changes. Marking a run
+        // covers its whole sales input, even when an excluded item cannot appear in the report.
+        excludedHandledTotals.push({
+          ...total,
+          quantity: Math.max(0, total.quantity, salesTotals.get(total.key)?.quantity ?? 0),
+          excluded: true,
+        })
+      } else {
+        visibleHandledTotals.push(total.excluded ? { ...total, excluded: false } : total)
+      }
+    }
+    repeat = compareHandledSales(latestTotals, visibleHandledTotals)
+    repeat.nextHandledTotals.push(...excludedHandledTotals)
+    const additionalByKey = new Map(repeat.comparisons.map((comparison) => [comparison.key, comparison.additional]))
+    for (const [key, sale] of salesTotals) {
+      sale.quantity = additionalByKey.get(key) ?? 0
+    }
+  }
+
   const matchedItems: RestockItem[] = []
   const unmatchedItems: RestockItem[] = []
 
@@ -361,10 +479,7 @@ export function buildBaseReport(
     }
 
     const balance = inventoryMatches.reduce((sum, product) => sum + product.balance, 0)
-    const categorySource =
-      inventoryMatches.find(
-        (product) => product.balance !== 0 && normalizeName(product.categories[0] ?? '') !== 'deactivate',
-      ) ?? inventoryMatches.find((product) => normalizeName(product.categories[0] ?? '') !== 'deactivate') ?? inventoryMatches[0]
+    const categorySource = inventoryCategorySource(inventoryMatches)
     const categories = categorySource.categories
     const issue = balance < 0 ? 'negative-stock' : balance === 0 ? 'zero-stock' : undefined
 
@@ -405,6 +520,7 @@ export function buildBaseReport(
     warnings,
     salesFileNames: salesInputs.map((input) => input.name),
     inventoryFileName: inventoryInput.name,
+    ...(repeat ? { repeat } : {}),
   }
 }
 

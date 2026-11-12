@@ -1,5 +1,44 @@
 # Restockulator motion
 
+## Additional Soft restocks — November 11, 2026
+
+The optional subtraction checkbox uses the existing AnimatedCheckbox switch.
+Its inline controls use one Accordion body with the checkbox as its focus-return
+target. Turning subtraction off retains drafts and history in the page session;
+it invalidates the processed report so the next normal report uses ordinary Soft
+calculations. Refresh and Clear all reset the option and its working history.
+
+Handled filenames and timestamps appear immediately under Step 3, newest first,
+with a Current comparison label on the active group. History is not a disclosure.
+Only sales calculation and per-run quantity tables use MotionDetails/Accordion
+with chevrons. The Step 1 Move to already handled action validates before moving
+files, then returns focus to the Step 1 upload control. Step 3 uploads import
+automatically; no second save action or cycle-reset button remains. Routine
+reminder paragraphs were removed. Errors stay outside disclosures, including
+errors found when importing an already-handled run. Brief feedback uses
+TextStateSwap. Original uploads,
+settings, main actions, Hard mode, and normal printed report markup are retained.
+Follow-up print headings, source details, and comparison-error lists are static;
+the original row columns, paper checkboxes, stock rules, and packet splitting
+are reused. No file or history data is persisted or sent to a server.
+
+Validation passed 90 automated tests, TypeScript, lint, and the production build.
+The compiled preview passed 21 repeat-restock browser/print checks and the 19
+existing Hard checks. Desktop/narrow layouts, reduced-motion focus restoration,
+session reset, worker processing, and normal/split PDFs were checked. Ordinary
+Soft output matched the pre-change implementation across all ten saved sample
+pairs: 20 base-report, 80 settings/display, and 240 split comparisons. No physical
+printer was tested.
+
+Repeat browser checks with synthetic data in an isolated browser context:
+
+```sh
+node scripts/check-repeat-browser.mjs <local-CDP-websocket> <local-preview-origin>
+```
+
+Use a disposable browser profile outside the repository. Screenshots, PDFs, and
+check results are written beneath ignored `tmp/motion-repeat-evidence/`.
+
 ## Interaction polish, October 15, 2026
 
 File intake now shows actual pending reads in a reserved status line and keeps the
