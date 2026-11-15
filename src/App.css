@@ -405,11 +405,40 @@ main {
   margin: 0;
 }
 
-.duplicate-details {
+.processing-notices {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px 28px;
+}
+
+.processing-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.processing-notice:only-child {
+  grid-column: 1 / -1;
+}
+
+.processing-notice > svg {
+  flex-shrink: 0;
+}
+
+.processing-notice > div {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.duplicate-details,
+.inventory-details {
   margin-top: 9px;
 }
 
-.duplicate-details summary {
+.duplicate-details summary,
+.inventory-details summary {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -420,7 +449,8 @@ main {
   font-weight: 800;
 }
 
-.duplicate-details pre {
+.duplicate-details pre,
+.inventory-diagnostic-list {
   max-height: 260px;
   margin: 9px 0 0;
   overflow: auto;
@@ -430,7 +460,38 @@ main {
   color: #d9e8f3;
   background: #091827;
   font: 0.72rem/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.duplicate-details pre {
   white-space: pre-wrap;
+}
+
+.inventory-diagnostic-list table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.inventory-diagnostic-list th,
+.inventory-diagnostic-list td {
+  padding: 5px 0;
+  text-align: left;
+  vertical-align: top;
+}
+
+.inventory-diagnostic-list th {
+  color: #e2f4ff;
+}
+
+.inventory-diagnostic-list th:last-child,
+.inventory-diagnostic-list td:last-child {
+  padding-left: 16px;
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.inventory-diagnostic-list tbody tr {
+  border-top: 1px solid #29465e;
 }
 
 .info-message {
@@ -913,6 +974,10 @@ main {
 }
 
 @media (max-width: 760px) {
+  .processing-notices {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .site-header,
   main,
   .site-footer {

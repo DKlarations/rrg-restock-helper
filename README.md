@@ -1,6 +1,6 @@
-# RRG Restockulator
+# The Restockulator
 
-RRG Restockulator turns Red Raccoon Games sales and inventory CSV exports into a categorized, printable floor-restock list.
+The Restockulator turns Red Raccoon Games sales and inventory CSV exports into a categorized, printable floor-restock list.
 
 **Soft** is the default, sales-driven restock list. **Hard** produces inventory-only category checklists for physical stock counts. Both modes share the current inventory upload and keep their own settings.
 
@@ -63,6 +63,8 @@ Permanent exclusions include Events, Tickets, Rentals, Club Membership discounts
 ## Duplicate inventory names
 
 The inventory exports contain some unexpected duplicate product names whose upstream meaning is not yet clear. Soft combines the balances of matching ordinary inventory records. Hard retains each inventory entry separately. In both modes, the warning panel includes a collapsible plain-text list showing every duplicated product name so the behavior remains visible and reviewable.
+
+After Soft processing, a second disclosure beside the duplicate warning lists products with a negative combined inventory balance, with their Current Stock quantities. It includes unsold products and stays independent of optional report filters. Hidey Hole inventory and permanent non-stock exclusions remain excluded. The two readouts stack on narrow screens and do not print.
 
 ## Print settings
 

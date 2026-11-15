@@ -30,6 +30,59 @@ async function loadReports(container: HTMLElement) {
   await act(async () => { sale.resolve(salesText); inventory.resolve(inventoryText) })
 }
 
+describe('inventory review', () => {
+  it('shows unsold negative inventory beside duplicates with independent disclosures', async () => {
+    const { container } = render(<App />)
+    const sale = pendingFile('sales.csv'), inventory = pendingFile('inventory.csv')
+    upload(container, 'sales', [sale.file]); upload(container, 'inventory', [inventory.file])
+    await act(async () => {
+      sale.resolve(salesText)
+      inventory.resolve(`${inventoryText}\nGames >>Duplicate,-5\nGames >>Duplicate,2\nGames >>Unsold,-1.5`)
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Process Reports' }))
+    await screen.findByText('2 products have negative inventory balances.')
+    const notices = screen.getByRole('region', { name: 'Inventory review' })
+    expect(notices.querySelectorAll('.processing-notice')).toHaveLength(2)
+    const duplicates = screen.getByText('View duplicate product names')
+    const negatives = screen.getByText('View negative inventory items')
+    expect(duplicates.getAttribute('aria-expanded')).toBe('false')
+    expect(negatives.getAttribute('aria-expanded')).toBe('false')
+    fireEvent.click(duplicates)
+    fireEvent.click(negatives)
+    expect(duplicates.getAttribute('aria-expanded')).toBe('true')
+    expect(negatives.getAttribute('aria-expanded')).toBe('true')
+    const rows = screen.getByRole('region', { name: 'Negative inventory items' }).querySelectorAll('tbody tr')
+    expect([...rows].map((row) => [...row.querySelectorAll('td')].map((cell) => cell.textContent))).toEqual([
+      ['Duplicate', '-3'], ['Unsold', '-1.5'],
+    ])
+    expect(container.querySelector('.report-card')?.textContent).not.toMatch(/Duplicate|Unsold/)
+    fireEvent.click(duplicates)
+    expect(negatives.getAttribute('aria-expanded')).toBe('true')
+    fireEvent.click(screen.getByRole('button', { name: 'Clear all' }))
+    expect(screen.queryByRole('region', { name: 'Inventory review' })).toBeNull()
+  })
+
+  it('shows the negative list when there are no other processing warnings and clears it with new inventory', async () => {
+    const { container } = render(<App />)
+    const sale = pendingFile('sales.csv'), inventory = pendingFile('inventory.csv')
+    upload(container, 'sales', [sale.file]); upload(container, 'inventory', [inventory.file])
+    await act(async () => {
+      sale.resolve(salesText)
+      inventory.resolve(`${inventoryText}\nGames >>Unsold,-2`)
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Process Reports' }))
+    await screen.findByText('1 product has a negative inventory balance.')
+    expect(screen.queryByText('View duplicate product names')).toBeNull()
+    const replacement = pendingFile('positive-inventory.csv')
+    upload(container, 'inventory', [replacement.file])
+    await act(async () => { replacement.resolve(inventoryText) })
+    fireEvent.click(screen.getByRole('button', { name: 'Process Reports' }))
+    await screen.findByText('1 items ready to restock')
+    expect(screen.queryByText('View negative inventory items')).toBeNull()
+    expect(screen.queryByRole('region', { name: 'Inventory review' })).toBeNull()
+  })
+})
+
 describe('background report lifecycle', () => {
   beforeEach(() => { FakeWorker.instances = []; vi.stubGlobal('Worker', FakeWorker) })
 

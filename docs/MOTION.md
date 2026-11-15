@@ -1,5 +1,23 @@
 # Restockulator motion
 
+## Negative inventory review — November 14, 2026
+
+Soft's processing warning now places negative inventory beside the existing
+duplicate-name readout, stacking them below 760 px. The new native disclosure uses
+the same MotionDetails/Accordion adapter, starts closed, and opens independently.
+Its product/Current Stock table has a keyboard-focusable 260 px scroll viewport.
+Both readouts remain in the existing no-print surface; report markup is unchanged.
+The diagnostic uses combined inventory balances, includes unsold products, and
+retains Hidey Hole and permanent non-stock exclusions.
+
+Validation passed 96 tests, TypeScript, lint, and the production build. Eleven
+synthetic Chromium checks passed for desktop/390/320 px layout, long-list
+scrolling, keyboard/reduced-motion behavior, negative-only and empty states,
+unchanged report markup on disclosure toggles, print exclusion, and retained
+Hard duplicate styling. Run `scripts/check-negative-browser.mjs` with a disposable
+local CDP browser endpoint and local preview origin; evidence goes under ignored
+`tmp/motion-negative-evidence/`.
+
 ## Additional Soft restocks — November 11, 2026
 
 The optional subtraction checkbox uses the existing AnimatedCheckbox switch.

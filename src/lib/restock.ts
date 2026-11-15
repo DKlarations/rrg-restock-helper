@@ -58,6 +58,7 @@ export type BaseReport = {
   ignoredReportRows: number
   duplicateInventoryNames: number
   duplicateInventoryProductNames: string[]
+  negativeInventoryProducts: Array<{ key: string; item: string; currentStock: number }>
   inventoryRows: number
   salesRows: number
   warnings: string[]
@@ -352,6 +353,13 @@ export function buildBaseReport(
     .map((products) => products[0]?.displayName ?? '')
     .filter(Boolean)
     .sort((a, b) => a.localeCompare(b, 'en-US', { sensitivity: 'base' }))
+  const negativeInventoryProducts = [...inventoryMap.entries()].flatMap(([key, products]) => {
+    const currentStock = products.reduce((sum, product) => sum + product.balance, 0)
+    if (currentStock >= 0 || SYSTEM_IGNORED_ITEM_KEYS.has(key)) return []
+    const source = inventoryCategorySource(products)
+    if (source.categories.some((category) => SYSTEM_IGNORED_CATEGORY_KEYS.has(normalizeName(category)))) return []
+    return [{ key, item: source.displayName, currentStock }]
+  }).sort((a, b) => a.item.localeCompare(b.item, 'en-US', { sensitivity: 'base' }))
 
   const salesTotals = new Map<
     string,
@@ -515,6 +523,7 @@ export function buildBaseReport(
     ignoredReportRows,
     duplicateInventoryNames,
     duplicateInventoryProductNames,
+    negativeInventoryProducts,
     inventoryRows: inventoryRows.length,
     salesRows,
     warnings,

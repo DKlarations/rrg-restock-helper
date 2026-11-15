@@ -650,7 +650,7 @@ function App() {
       <header className="site-header">
         <img src="/rrg-header-logo.png" alt="Red Raccoon Games" />
         <div className="title-lockup">
-          <h1>RRG Restockulator</h1>
+          <h1>The Restockulator</h1>
           <span className="version-badge">v0.1.2</span>
         </div>
         <img src="/rrg-header-logo.png" alt="" aria-hidden="true" />
@@ -803,23 +803,52 @@ function App() {
               <div><strong>{report.ignoredItems}</strong><span>Ignored by rule</span></div>
             </section>
 
-            {(report.warnings.length > 0 || report.ignoredReportRows > 0) && (
-              <section className="message info-message no-print">
-                <Info size={19} />
-                <div>
-                  {report.warnings.map((warning) => <p key={warning}>{warning}</p>)}
-                  {report.ignoredReportRows > 0 && <p>{report.ignoredReportRows} footer or incomplete rows were ignored.</p>}
-                  {report.duplicateInventoryProductNames.length > 0 && (
-                    <MotionDetails className="duplicate-details" summary={
-                      <>
-                        View duplicate product names
-                        <ChevronDown size={15} className="summary-chevron" aria-hidden="true" />
-                      </>
-                    }>
-                      <pre>{report.duplicateInventoryProductNames.join('\n')}</pre>
-                    </MotionDetails>
-                  )}
-                </div>
+            {(report.warnings.length > 0 || report.ignoredReportRows > 0 || report.negativeInventoryProducts.length > 0) && (
+              <section className="message info-message processing-notices no-print" aria-label="Inventory review">
+                {(report.warnings.length > 0 || report.ignoredReportRows > 0) && (
+                  <div className="processing-notice">
+                    <Info size={19} aria-hidden="true" />
+                    <div>
+                      {report.warnings.map((warning) => <p key={warning}>{warning}</p>)}
+                      {report.ignoredReportRows > 0 && <p>{report.ignoredReportRows} footer or incomplete rows were ignored.</p>}
+                      {report.duplicateInventoryProductNames.length > 0 && (
+                        <MotionDetails className="inventory-details duplicate-details" summary={
+                          <>
+                            View duplicate product names
+                            <ChevronDown size={15} className="summary-chevron" aria-hidden="true" />
+                          </>
+                        }>
+                          <pre>{report.duplicateInventoryProductNames.join('\n')}</pre>
+                        </MotionDetails>
+                      )}
+                    </div>
+                  </div>
+                )}
+                {report.negativeInventoryProducts.length > 0 && (
+                  <div className="processing-notice">
+                    <Info size={19} aria-hidden="true" />
+                    <div>
+                      <p>{report.negativeInventoryProducts.length} {report.negativeInventoryProducts.length === 1 ? 'product has a negative inventory balance.' : 'products have negative inventory balances.'}</p>
+                      <MotionDetails className="inventory-details negative-inventory-details" summary={
+                        <>
+                          View negative inventory items
+                          <ChevronDown size={15} className="summary-chevron" aria-hidden="true" />
+                        </>
+                      }>
+                        <div className="inventory-diagnostic-list" tabIndex={0} role="region" aria-label="Negative inventory items">
+                          <table>
+                            <thead><tr><th scope="col">Product</th><th scope="col">Current Stock</th></tr></thead>
+                            <tbody>
+                              {report.negativeInventoryProducts.map((product) => (
+                                <tr key={product.key}><td>{product.item}</td><td>{formatQuantity(product.currentStock)}</td></tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </MotionDetails>
+                    </div>
+                  </div>
+                )}
               </section>
             )}
 
@@ -1021,7 +1050,7 @@ function App() {
       </main>
 
       <footer className="site-footer no-print">
-        <span>Updated: 11.12.2026</span>
+        <span>Updated: 11.14.2026</span>
         <span>As always, let me know if you have any issues or ideas with this -Derek</span>
       </footer>
     </div>

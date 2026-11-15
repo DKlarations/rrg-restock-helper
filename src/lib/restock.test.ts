@@ -252,6 +252,87 @@ describe('restock processing', () => {
     expect(base.ignoredReportRows).toBe(1)
   })
 
+  it('lists all negative combined inventory balances, including unsold products, in name order', () => {
+    const base = buildBaseReport(
+      [{ name: 'sales.csv', text: 'Products and Categories,Quantity\nSold Negative,1\n' }],
+      { name: 'inventory.csv', text: `Product,Balance
+Mini >>Zulu Unsold,-2
+Mini >>Sold Negative,-3
+Mini >>Alpha Combined,-5
+Mini >> alpha   combined,2
+Mini >>Offset To Zero,-4
+Mini >>offset to zero,4
+Mini >>Offset To Positive,-3
+Mini >>Offset To Positive,5
+Mini >>Zero Stock,0
+Mini >>Positive Stock,9
+Mini >>Invalid Stock,invalid
+` },
+    )
+
+    expect(base.negativeInventoryProducts).toEqual([
+      { key: 'alpha combined', item: 'Alpha Combined', currentStock: -3 },
+      { key: 'sold negative', item: 'Sold Negative', currentStock: -3 },
+      { key: 'zulu unsold', item: 'Zulu Unsold', currentStock: -2 },
+    ])
+    expect(base.matchedItems.map((item) => item.item)).toEqual(['Sold Negative'])
+    expect(base.matchedItems[0]).toMatchObject({ currentStock: -3, qtyToPull: 0, issue: 'negative-stock' })
+    expect(base.duplicateInventoryProductNames).toEqual(['Alpha Combined', 'Offset To Positive', 'Offset To Zero'])
+  })
+
+  it('excludes Hidey Hole stock and permanent non-stock products from negative inventory diagnostics', () => {
+    const base = buildBaseReport(
+      [{ name: 'sales.csv', text: 'Products and Categories,Quantity\n' }],
+      { name: 'inventory.csv', text: `Product,Balance
+Mini >>[HH] Marker Only,-20
+Online >>1_Hidey Hole >>Category Only,-20
+Mini >>Mixed Negative,-2
+Online >>Hidey Hole >>Mixed Negative,50
+Mini >>Mixed Positive,2
+Mini >>[HH] Mixed Positive,-50
+Mini >>Level Up Discount,-1
+Mini >>Teacher/Librarian Discount,-1
+Mini >>Employee,-1
+Accounts >>Club Memberships >>Membership,-5
+Event >>Event Entry,-5
+Events >>Tournament,-5
+Mini >>Ordinary Negative,-1
+` },
+    )
+
+    expect(base.negativeInventoryProducts).toEqual([
+      { key: 'mixed negative', item: 'Mixed Negative', currentStock: -2 },
+      { key: 'ordinary negative', item: 'Ordinary Negative', currentStock: -1 },
+    ])
+    expect(base.duplicateInventoryProductNames).toEqual([])
+  })
+
+  it('keeps the negative inventory readout independent of sales and optional print filters', () => {
+    const base = buildBaseReport(
+      [{ name: 'sales.csv', text: 'Products and Categories,Quantity\n' }],
+      { name: 'inventory.csv', text: 'Product,Balance\nCCGs >>Singles >>Unsold Card,-1.5\n' },
+      [],
+    )
+    const report = applyReportSettings(base, { ...DEFAULT_SETTINGS, ignoreText: 'Unsold Card' })
+
+    expect(report.negativeInventoryProducts).toEqual([
+      { key: 'unsold card', item: 'Unsold Card', currentStock: -1.5 },
+    ])
+    expect(report.warnings).toEqual([])
+    expect(report.groups).toEqual([])
+    expect(report.verifyItems).toEqual([])
+    expect(report.repeat?.comparisons).toEqual([])
+  })
+
+  it('returns an empty negative inventory readout when no combined balance is negative', () => {
+    const base = buildBaseReport(
+      [{ name: 'sales.csv', text: 'Products and Categories,Quantity\nPositive,1\n' }],
+      { name: 'inventory.csv', text: 'Product,Balance\nMini >>Positive,2\nMini >>Zero,0\n' },
+    )
+
+    expect(base.negativeInventoryProducts).toEqual([])
+  })
+
   it('cleans Board Games groups, prioritizes Processing, hides Misc. and Singles, and verifies bad stock', () => {
     const base = buildBaseReport(
       [{ name: 'EmailProductSales.csv', text: sales }],

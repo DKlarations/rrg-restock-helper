@@ -213,7 +213,7 @@ describe('repeat Soft restock', () => {
         currentStock: 100, qtySold: 10, qtyToPull: 10, firstSeen: 0, isMiscOrSingle: false, issue: undefined,
       }],
       unmatchedItems: [], ignoredReportRows: 0, duplicateInventoryNames: 0,
-      duplicateInventoryProductNames: [], inventoryRows: 1, salesRows: 1, warnings: [],
+      duplicateInventoryProductNames: [], negativeInventoryProducts: [], inventoryRows: 1, salesRows: 1, warnings: [],
       salesFileNames: ['sales.csv'], inventoryFileName: 'inventory.csv',
     })
     expect(Object.hasOwn(normal, 'repeat')).toBe(false)
